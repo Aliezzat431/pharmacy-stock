@@ -1,0 +1,240 @@
+import { connectDB } from '@/app/lib/connectDb';
+import { verifyToken } from '@/app/lib/verifyToken';
+import Product from '@/app/models/product.model';
+import winningModel from '@/app/models/winning.model';
+import { NextResponse } from 'next/server';
+
+const typesWithUnits = {
+  "مضاد حيوي شرب": ["علبة"],
+  "مضاد حيوي برشام": ["شريط", "علبة"],
+  "دواء عادي برشام": ["شريط", "علبة"],
+  "فيتامين برشام": ["شريط", "علبة"],
+  "فيتامين شرب": ["علبة"],
+  "دواء شرب عادي": ["علبة"],
+  "نقط فم": ["علبة"],
+  "نقط أنف": ["علبة"],
+  "بخاخ فم": ["علبة"],
+  "بخاخ أنف": ["علبة"],
+  "مرهم": ["علبة"],
+  "مستحضرات": ["علبة"],
+  "لبوس": ["شريط", "علبة"],
+  "حقن": ["أمبول", "علبة"],
+};
+
+export async function POST(req) {
+  try {
+    const user = verifyToken(req.headers);
+    if (!user) {
+      return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+    }
+
+    await connectDB();
+    const body = await req.json();
+
+    if (!Array.isArray(body) || body.length === 0) {
+      return NextResponse.json({ error: 'يجب إرسال قائمة منتجات صحيحة (مصفوفة غير فارغة).' }, { status: 400 });
+    }
+
+    const createdProducts = [];
+    let totalAmount = 0;
+    let reasonParts= [];
+
+    for (const productData of body) {
+      const {
+        name,
+        type,
+        unit,
+        quantity,
+        barcode,
+        unitConversion,
+        expiryDate,
+        purchasePrice,
+        salePrice,
+      } = productData;
+
+      if (
+        !name || !type || !unit || !barcode ||
+        purchasePrice === undefined || salePrice === undefined || quantity === undefined
+      ) {
+        return NextResponse.json({
+          error: 'جميع الحقول مطلوبة: الاسم، النوع، الوحدة، السعرين، الكمية، والباركود',
+        }, { status: 400 });
+      }
+
+      const allowedUnits = typesWithUnits[type];
+      if (!allowedUnits) {
+        return NextResponse.json({ error: `النوع "${type}" غير معروف.` }, { status: 400 });
+      }
+
+      if (!allowedUnits.includes(unit)) {
+        return NextResponse.json({
+          error: `الوحدة "${unit}" غير صالحة للنوع "${type}". المسموح: ${allowedUnits.join(', ')}`,
+        }, { status: 400 });
+      }
+
+      const parsedPurchasePrice = Number(purchasePrice);
+      const parsedSalePrice = Number(salePrice);
+      const parsedQuantity = Number(quantity);
+      const parsedUnitConversion = unitConversion ? Number(unitConversion) : null;
+
+      if (isNaN(parsedPurchasePrice) || parsedPurchasePrice < 0) {
+        return NextResponse.json({ error: 'سعر الشراء يجب أن يكون رقمًا موجبًا' }, { status: 400 });
+      }
+
+      if (isNaN(parsedSalePrice) || parsedSalePrice < 0) {
+        return NextResponse.json({ error: 'سعر البيع يجب أن يكون رقمًا موجبًا' }, { status: 400 });
+      }
+
+      if (isNaN(parsedQuantity) || parsedQuantity < 0) {
+        return NextResponse.json({ error: 'الكمية يجب أن تكون رقمًا موجبًا' }, { status: 400 });
+      }
+
+      const hasMultipleUnits = allowedUnits.length === 2;
+      const baseUnit = allowedUnits[0];
+
+      if (hasMultipleUnits) {
+        if (
+          parsedUnitConversion === null ||
+          isNaN(parsedUnitConversion) ||
+          parsedUnitConversion <= 0
+        ) {
+          return NextResponse.json({
+            error: `عدد الوحدات داخل العلبة يجب أن يكون رقمًا أكبر من صفر للمنتج "${name}".`,
+          }, { status: 400 });
+        }
+      }
+
+console.log(   {name,
+        type,
+        unit,
+        quantity: parsedQuantity,
+        price: parsedSalePrice,
+        purchasePrice: parsedPurchasePrice,
+        barcode,
+        unitConversion: parsedUnitConversion,
+        isBaseUnit: !hasMultipleUnits || unit === baseUnit,
+        expiryDate: expiryDate ? new Date(expiryDate) : undefined,
+        isShortcoming: parsedQuantity < 5});
+
+      const product = new Product({
+        name,
+        type,
+        unit,
+        quantity: parsedQuantity,
+        price: parsedSalePrice,
+        purchasePrice: parsedPurchasePrice,
+        barcode,
+        unitConversion: parsedUnitConversion,
+        isBaseUnit: !hasMultipleUnits || unit === baseUnit,
+        expiryDate: expiryDate ? new Date(expiryDate) : undefined,
+        isShortcoming: parsedQuantity < 5, // ✅ compute once at creation
+      });
+
+      await product.save();
+      createdProducts.push(product);
+
+      // ✨ اجمع المصروف والسبب في متغيرات مؤقتة
+      totalAmount += parsedPurchasePrice * parsedQuantity;
+      reasonParts.push(`${parsedQuantity} ${unit} ${name}`);
+    }
+
+    // ✅ تسجيل مصروف واحد بجملة مجمعة
+    if (totalAmount > 0 && reasonParts.length > 0) {
+      const reason = `تم شراء ${reasonParts.join(" و ")}`;
+      await winningModel.create({
+        amount: totalAmount,
+        reason,
+        transactionType: "out",
+      });
+    }
+
+    return NextResponse.json({
+      message: 'تم إنشاء جميع المنتجات وتسجيل المصروف كمجموعة واحدة',
+      createdProducts,
+    }, { status: 201 });
+
+  } catch (error) {
+    console.error('POST error:', error);
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
+  }
+}
+
+
+export async function PATCH(req) {
+  try {
+    const user = verifyToken(req.headers);
+    if (!user) {
+      return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+    }
+
+    await connectDB();
+    const body = await req.json();
+    const { id, mode } = body;
+
+    if (!id || !mode) {
+      return new Response(JSON.stringify({ error: 'Missing id or mode' }), { status: 400 });
+    }
+
+    if (mode === 'barcode') {
+      const { barcode } = body;
+      if (!barcode) {
+        return new Response(JSON.stringify({ error: 'Missing barcode' }), { status: 400 });
+      }
+      await Product.findByIdAndUpdate(id, { barcode });
+      return new Response(JSON.stringify({ success: true }));
+    }
+
+    if (mode === 'expiryDate') {
+      const { expiryDate } = body;
+      if (!expiryDate || isNaN(Date.parse(expiryDate))) {
+        return new Response(JSON.stringify({ error: 'Invalid expiry date' }), { status: 400 });
+      }
+      await Product.findByIdAndUpdate(id, { expiryDate: new Date(expiryDate) });
+      return new Response(JSON.stringify({ success: true }));
+    }
+
+if (mode === 'quantity') {
+  const { quantity } = body;
+  if (typeof quantity !== 'number' || isNaN(quantity)) {
+    return new Response(JSON.stringify({ error: 'Invalid quantity' }), { status: 400 });
+  }
+
+  const product = await Product.findById(id);
+  if (!product) {
+    return new Response(JSON.stringify({ error: 'Product not found' }), { status: 404 });
+  }
+
+  const oldQuantity = product.quantity;
+  const newQuantity = quantity;
+
+  // Prevent negative quantities
+  if (newQuantity < 0) {
+    return new Response(JSON.stringify({ error: 'الكمية لا يمكن أن تكون سالبة' }), { status: 400 });
+  }
+
+  await Product.findByIdAndUpdate(id, { quantity: newQuantity,  isShortcoming: newQuantity < 5});
+
+  const diff = newQuantity - oldQuantity;
+  const transactionType = diff > 0 ? 'out' : 'in';
+  const amount = Math.abs(diff * product.price);
+
+  if (!isNaN(amount)) {
+    await winningModel.create({
+      amount,
+      reason:
+        diff > 0
+          ? `زيادة كمية ${product.name} من ${oldQuantity} ${product.unit} إلى ${newQuantity} ${product.unit}`
+          : `نقص كمية ${product.name} من ${oldQuantity} ${product.unit} إلى ${newQuantity} ${product.unit}`,
+      transactionType,
+    });
+  }
+
+  return new Response(JSON.stringify({ success: true }));
+}
+
+    return new Response(JSON.stringify({ error: 'Invalid mode' }), { status: 400 });
+  } catch (error) {
+    console.error('PATCH error:', error);
+    return new Response(JSON.stringify({ error: 'Server error' }), { status: 500 });
+  }
+}
