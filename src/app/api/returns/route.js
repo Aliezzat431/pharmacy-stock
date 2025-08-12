@@ -4,42 +4,6 @@ import { NextResponse } from "next/server";
 import { verifyToken } from "@/app/lib/verifyToken";
 import winningModel from "@/app/models/winning.model";
 
-export async function GET(request) {
-  try {
-    const user = verifyToken(request.headers);
-    if (!user) {
-      return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
-    }
-
-    await connectDB();
-
-    const products = await Product.find({});
-
-    const treatments = products.map((p) => {
-      const obj = p.toObject();
-      return {
-        _id: obj._id,
-        name: obj.name,
-        price: obj.price,
-        unit: obj.unit,
-        quantity: obj.quantity,
-        type: obj.type,
-        unitConversion: obj.unitConversion,
-        isBaseUnit: obj.isBaseUnit,
-        barcode: obj.barcode,
-        expiryDate: obj.expiryDate,
-        unitOptions: getUnitsForType(obj.type),
-        isShortcoming:obj.isShortcoming
-      };
-    });
-
-    return NextResponse.json({ treatments }, { status: 200 });
-  } catch (error) {
-    console.error("GET /api/returns error:", error);
-    return NextResponse.json({ error: "خطأ في الخادم" }, { status: 500 });
-  }
-}
-
 export async function POST(req) {
   try {
     const user = verifyToken(req.headers);

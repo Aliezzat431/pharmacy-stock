@@ -1,125 +1,162 @@
 import { connectDB } from "@/app/lib/connectDb";
-import Product from "@/app/models/product.model";
 import Debtor from "@/app/models/debtor.model";
-import winningModel from "@/app/models/winning.model";
+import Product from "@/app/models/product.model";
 import { NextResponse } from "next/server";
 import { verifyToken } from "@/app/lib/verifyToken";
+import { typesWithUnits } from "@/app/lib/unitOptions";
+import winningModel from "@/app/models/winning.model";
+import mongoose from "mongoose";
 
 export async function POST(req) {
   try {
     const user = verifyToken(req.headers);
     if (!user) {
-      return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
     }
 
     await connectDB();
     const body = await req.json();
-    const { name, orders, type } = body;
+    const products = body.orders;
+    const payAmount = body.partialPayment || 0;
 
-    if (!name || !Array.isArray(orders)) {
-      return NextResponse.json({ message: "Name and orders are required" }, { status: 400 });
+    if (!Array.isArray(products) || products.length === 0) {
+      return NextResponse.json({ error: 'يجب إرسال قائمة منتجات صحيحة (مصفوفة غير فارغة).' }, { status: 400 });
     }
 
-    const today = new Date();
-    let totalCost = 0;
-    const detailedItems = [];
+    const createdProducts = [];
+    let totalAmount = 0;
     const reasonParts = [];
 
-    // ✅ Special case for agel (إيداع بدون منتج)
-    if (type === "agel") {
-      for (const item of orders) {
-        const { name: description, quantity } = item;
+    for (const productData of products) {
+      const {
+        name,
+        unit,
+        quantity,
+        fullProduct,
+        price,
+        expiry,
+        remaining,
+        unitOptions = []
+      } = productData;
 
-        if (!description || !quantity) continue;
+      const parsedQuantity = Number(quantity);
+      const normalizedUnit = typeof unit === "string" ? unit : unit?.value || "";
 
-        const amount = Number(quantity);
-        if (isNaN(amount) || amount <= 0) continue;
-
-        totalCost += amount;
-
-        detailedItems.push({
-          name: description,
-          unit: "جنيه",
-          quantity: amount,
-          price: amount,
-          total: amount,
-          fullProduct: null,
-        });
-
-        reasonParts.push(`${amount} جنيه لإيداع: ${description}`);
+      if (!name || !normalizedUnit || parsedQuantity === undefined) {
+        return NextResponse.json({ error: 'يجب توفير الاسم والوحدة والكمية على الأقل لكل منتج' }, { status: 400 });
       }
-    } else {
-      for (const item of orders) {
-        const { name: productName, unit, quantity } = item;
-        const product = await Product.findOne({ name: productName });
-        if (!product) continue;
 
-        if (product.expiryDate && new Date(product.expiryDate) <= today) {
-          return NextResponse.json({
-            message: `المنتج "${product.name}" منتهي الصلاحية ولا يمكن إضافته.`,
-          }, { status: 400 });
+      if (isNaN(parsedQuantity) || parsedQuantity <= 0) {
+        return NextResponse.json({ error: 'الكمية يجب أن تكون رقمًا موجبًا' }, { status: 400 });
+      }
+
+      const usedPrice = price || (fullProduct?.price ?? 0);
+      const itemTotal = usedPrice * parsedQuantity;
+
+      const normalizedUnitOptions = unitOptions
+        .map(opt => typeof opt === "string" ? opt : opt?.value || "")
+        .filter(Boolean);
+
+      createdProducts.push({
+        name,
+        price: usedPrice,
+        quantity: parsedQuantity,
+        unit: normalizedUnit,
+        total: itemTotal,
+        unitOptions: normalizedUnitOptions,
+        expiryDate: expiry || fullProduct?.expiryDate || null,
+        remaining: remaining || fullProduct?.quantity || 0,
+        fullProduct: {
+          ...fullProduct,
+          quantity: fullProduct?.quantity ?? 0,
+        }
+      });
+
+      // ✅ تجاهل تعديل المخزون إذا كان المنتج agel
+      const isAgel = fullProduct?._id === "agel" || fullProduct?.type === "agel";
+      if (!isAgel) {
+        const baseUnit = fullProduct?.unit;
+        const unitConversion = fullProduct?.unitConversion ?? 1;
+        let decrementAmount = parsedQuantity;
+
+        if (normalizedUnit !== baseUnit && unitConversion > 0) {
+          decrementAmount = parsedQuantity / unitConversion;
         }
 
-        let quantityToDecrement = quantity;
-        if (unit !== product.unit && product.unitConversion) {
-          quantityToDecrement = quantity / product.unitConversion;
+        const newQty = (fullProduct?.quantity ?? 0) - decrementAmount;
+
+        // ✅ تأكد أن _id صالح قبل استخدامه مع MongoDB
+        if (mongoose.Types.ObjectId.isValid(fullProduct._id)) {
+          await Product.findByIdAndUpdate(fullProduct._id, { quantity: newQty });
         }
-
-        product.quantity -= quantityToDecrement;
-        if (product.quantity < 0) product.quantity = 0;
-
-        product.isShortcoming = product.quantity < 5 && product.unit === "علبة";
-
-        await product.save();
-
-        const itemTotal = quantityToDecrement * product.price;
-        totalCost += itemTotal;
-
-        detailedItems.push({
-          name: productName,
-          unit,
-          quantity,
-          price: product.price,
-          total: itemTotal,
-          fullProduct: product,
-        });
-
-        reasonParts.push(`${quantity} ${unit} ${productName}`);
       }
+
+      const cost = fullProduct?.purchasePrice ?? usedPrice;
+      totalAmount += cost * parsedQuantity;
+      reasonParts.push(`${parsedQuantity} ${normalizedUnit} ${name}`);
     }
 
-    const order = {
-      items: detailedItems,
-      total: totalCost,
-    };
+    if (payAmount > totalAmount) {
+      return NextResponse.json({ error: 'المبلغ المدفوع لا يمكن أن يكون أكبر من إجمالي الدين.' }, { status: 400 });
+    }
 
-    let debtor = await Debtor.findOne({ name });
-    if (debtor) {
-      debtor.orders.push(order);
+    let debtor = await Debtor.findOne({ name: body.name });
+    if (!debtor) {
+      debtor = new Debtor({ name: body.name, orders: [], partialPayments: 0 });
+    }
+
+    debtor.orders.push({ items: createdProducts, total: totalAmount });
+
+    if (payAmount > 0) {
+      debtor.partialPayments += payAmount;
+
+      await winningModel.create({
+        amount: payAmount,
+        reason: `دفع جزئي عند تسجيل دين للعميل ${body.name} عن ${reasonParts.join(' + ')}`,
+        transactionType: "in",
+      });
+    } else {
+      await winningModel.create({
+        amount: totalAmount,
+        reason: `تم إيداع مال من منتج غير محدد للعميل ${body.name}`,
+        transactionType: "suspended",
+      });
+    }
+
+    const newTotalDebt = debtor.orders.reduce(
+      (sum, order) =>
+        sum + order.items.reduce((acc, item) => acc + item.quantity * item.price, 0),
+      0
+    );
+    const isFullyPaid = debtor.partialPayments >= newTotalDebt;
+
+    if (isFullyPaid) {
+      await Debtor.deleteOne({ _id: debtor._id });
+    } else {
       await debtor.save();
-    } else {
-      debtor = await Debtor.create({ name, orders: [order] });
     }
 
-    await winningModel.create({
-      amount: totalCost,
-      reason: type === "agel"
-        ? `تم إيداع ${reasonParts.join(" و ")} في حساب ${name}`
-        : `تم شراء ${reasonParts.join(" و ")} للعميل ${name}`,
-      transactionType: "suspended",
+    return NextResponse.json({
+      success: true,
+      createdProducts,
+      totalAmount,
+      paidAmount: payAmount,
+      remainingAmount: totalAmount - payAmount,
+      reason: reasonParts.join(' + '),
     });
-
-    return NextResponse.json({ message: "تم تحديث المديونية", data: debtor }, { status: 201 });
-
   } catch (error) {
-    console.error("POST /api/debt error:", error);
-    return NextResponse.json({ message: "فشل في حفظ المديونية" }, { status: 500 });
+    console.error('POST error:', error);
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }
 
 
 
-// ⬇️ جلب جميع المديونيات
+
+
+
+
+
 export async function GET(req) {
   try {
     const user = verifyToken(req.headers);
@@ -128,14 +165,29 @@ export async function GET(req) {
     }
 
     await connectDB();
-    const all = await Debtor.find({});
-    return NextResponse.json(all, { status: 200 });
+    const allDebtors = await Debtor.find({}).lean(); // lean() to get plain objects
+
+    const enrichedDebtors = allDebtors.map((debtor) => {
+      const ordersTotal = debtor.orders?.reduce((sum, order) => sum + (order.total || 0), 0) || 0;
+      const paid = debtor.partialPayments || 0;
+      const totalDebt = ordersTotal - paid;
+
+      return {
+        ...debtor,
+        totalDebt,
+        totalOrders: ordersTotal,
+        paid,
+      };
+    });
+
+    return NextResponse.json(enrichedDebtors, { status: 200 });
 
   } catch (error) {
     console.error("GET /api/debt error:", error);
     return NextResponse.json({ message: "فشل في جلب المديونيات" }, { status: 500 });
   }
 }
+
 
 export async function PATCH(req) {
   try {
@@ -146,10 +198,10 @@ export async function PATCH(req) {
 
     await connectDB();
     const body = await req.json();
-    const { name, paidItems } = body;
+    const { name, payAmount } = body;
 
-    if (!name || !Array.isArray(paidItems)) {
-      return NextResponse.json({ message: "الاسم والعناصر المدفوعة مطلوبة" }, { status: 400 });
+    if (!name || typeof payAmount !== "number" || payAmount <= 0) {
+      return NextResponse.json({ message: "الاسم ومبلغ الدفع مطلوب" }, { status: 400 });
     }
 
     const debtor = await Debtor.findOne({ name });
@@ -158,60 +210,93 @@ export async function PATCH(req) {
     }
 
     let totalPaid = 0;
+    let remaining = payAmount;
     const winningEntries = [];
 
-    for (const { orderIndex, itemIndex, type } of paidItems) {
-      if (type === "agel") {
-        const agelAmount = debtor.agel || 0;
-        if (agelAmount > 0) {
-          totalPaid += agelAmount;
-
-          // log the repayment
-          winningEntries.push({
-            amount: agelAmount,
-            reason: `تم دفع إيداع بقيمة ${agelAmount} للعميل ${name}`,
-            transactionType: "in",
-          });
-
-          // remove suspended agel record
-          await winningModel.deleteOne({
-            reason: `تم إيداع مال من نوع آجل للعميل ${name}`,
-            transactionType: "suspended",
-          });
-
-          // remove agel field
-          debtor.agel = 0;
-        }
-
-        continue;
-      }
-
-      const item = debtor.orders?.[orderIndex]?.items?.[itemIndex];
-      if (!item) continue;
-
-      const { name: itemName, quantity, price, unit } = item;
-      const itemTotal = quantity * price;
-      totalPaid += itemTotal;
+    // إذا كان هناك آجل يتم دفعه أولاً
+    if (debtor.agel && debtor.agel > 0) {
+      const agelToPay = Math.min(remaining, debtor.agel);
+      remaining -= agelToPay;
+      totalPaid += agelToPay;
 
       winningEntries.push({
-        amount: itemTotal,
-        reason: `تم دفع دين ${quantity} ${unit || ''} ${itemName} من ${name}`,
+        amount: agelToPay,
+        reason: `تم دفع إيداع بقيمة ${agelToPay} للعميل ${name}`,
         transactionType: "in",
       });
 
+      // حذف معاملة الآجل المعلقة
       await winningModel.deleteOne({
-        reason: `تم شراء ${quantity} ${unit || ''} ${itemName} للعميل ${name}`,
+        reason: `تم إيداع مال من نوع آجل للعميل ${name}`,
         transactionType: "suspended",
       });
 
-      debtor.orders[orderIndex].items.splice(itemIndex, 1);
+      debtor.agel -= agelToPay;
     }
 
-    // clean empty orders
-    debtor.orders = debtor.orders.filter(order => order.items.length > 0);
+    // إذا بقي مبلغ ولم يتم إكمال الدفع، يتم خصم الباقي من المعاملات المعلقة
+    if (remaining > 0) {
+      const suspendedTransactions = await winningModel
+        .find({
+          transactionType: "suspended",
+          reason: { $regex: `.*${name}.*` },
+        })
+        .sort({ createdAt: 1 });
 
-    if ((debtor.orders.length === 0) && !debtor.agel) {
+      for (const tx of suspendedTransactions) {
+        if (remaining <= 0) break;
+
+        const deductAmount = Math.min(tx.amount, remaining);
+        remaining -= deductAmount;
+        totalPaid += deductAmount;
+
+        winningEntries.push({
+          amount: deductAmount,
+          reason: `تم خصم ${deductAmount} من المعاملة المعلقة للعميل ${name}`,
+          transactionType: "in",
+        });
+
+        if (deductAmount === tx.amount) {
+          // حذف المعاملة بالكامل
+          await winningModel.deleteOne({ _id: tx._id });
+        } else {
+          // تقليل قيمة المعاملة
+          await winningModel.updateOne({ _id: tx._id }, { $inc: { amount: -deductAmount } });
+        }
+      }
+    }
+
+    // حساب ديون المنتجات
+    const totalDebt = debtor.orders.reduce((sum, order) => {
+      return sum + order.items.reduce((acc, item) => acc + item.quantity * item.price, 0);
+    }, 0);
+
+    if (remaining > 0 && totalDebt > 0) {
+      const partialPayment = Math.min(remaining, totalDebt);
+      remaining -= partialPayment;
+      totalPaid += partialPayment;
+
+      winningEntries.push({
+        amount: partialPayment,
+        reason: `تم دفع ${partialPayment} من ديون المنتجات للعميل ${name}`,
+        transactionType: "in",
+      });
+
+      debtor.partialPayments = (debtor.partialPayments || 0) + partialPayment;
+    }
+
+    // التحقق من السداد الكامل
+    const isFullyPaid =
+      (debtor.agel <= 0 || !debtor.agel) &&
+      (debtor.partialPayments >= totalDebt);
+
+    if (isFullyPaid) {
       await Debtor.deleteOne({ _id: debtor._id });
+
+      await winningModel.deleteMany({
+        transactionType: "suspended",
+        reason: { $regex: `.*${name}.*` },
+      });
     } else {
       await debtor.save();
     }
@@ -220,11 +305,15 @@ export async function PATCH(req) {
       await winningModel.insertMany(winningEntries);
     }
 
-    return NextResponse.json({ message: "تم الدفع وتحديث الأرباح", totalPaid }, { status: 200 });
-
+    return NextResponse.json({ message: "تم الدفع وتسجيل الخصم", totalPaid }, { status: 200 });
   } catch (error) {
     console.error("PATCH /api/debt error:", error);
     return NextResponse.json({ message: "فشل في تحديث الديون" }, { status: 500 });
   }
 }
+
+
+
+
+ 
 

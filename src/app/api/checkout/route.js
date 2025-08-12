@@ -3,6 +3,7 @@ import Product from "@/app/models/product.model";
 import { NextResponse } from "next/server";
 import { verifyToken } from "@/app/lib/verifyToken";
 import winningModel from "@/app/models/winning.model";
+import { typesWithUnits } from "@/app/lib/unitOptions";
 
 export async function GET(request) {
   try {
@@ -33,20 +34,20 @@ export async function GET(request) {
       };
     });
 
-    // Add agel entry manually
+    // Add "agel" (non-product item)
     treatments.push({
       _id: "agel",
       name: "إيداع مال من منتج غير محدد",
-      price: 0,
+      price: 1,
       unit: "جنيه",
-      quantity: 0,
+      quantity: 100,
       type: "agel",
       isShortcoming: false,
       unitConversion: null,
       isBaseUnit: true,
       barcode: "",
       expiryDate: null,
-      unitOptions: ["جنيه"],
+      unitOptions: [{ value: "جنيه", label: "جنيه" }],
     });
 
     return NextResponse.json({ treatments }, { status: 200 });
@@ -56,8 +57,6 @@ export async function GET(request) {
   }
 }
 
-
-// POST: Handle sale and update quantities
 export async function POST(req) {
   try {
     const user = verifyToken(req.headers);
@@ -67,10 +66,20 @@ export async function POST(req) {
 
     await connectDB();
     const body = await req.json();
-    const { items } = body;
 
-    if (!Array.isArray(items) || items.length === 0) {
-      return NextResponse.json({ error: "يجب إرسال عناصر" }, { status: 400 });
+    if (!body || !Array.isArray(body.items)) {
+      return NextResponse.json({ error: "الطلب غير صالح" }, { status: 400 });
+    }
+
+    const items = body.items;
+    if (items.length === 0) {
+      return NextResponse.json({ error: "يجب إدخال منتجات" }, { status: 400 });
+    }
+
+    const ids = items.map(i => i._id);
+    const duplicates = ids.filter((id, idx) => ids.indexOf(id) !== idx);
+    if (duplicates.length > 0) {
+      return NextResponse.json({ error: "لا يمكن تكرار نفس المنتج في نفس الطلب" }, { status: 400 });
     }
 
     const now = new Date();
@@ -79,42 +88,69 @@ export async function POST(req) {
     const reasons = [];
 
     for (const item of items) {
-    const { _id, name, unit, quantity } = item;
+      const { _id, name, unit, quantity } = item;
 
-if (_id === "agel") {
+      if (!_id || !name || !unit || quantity == null) {
+        return NextResponse.json({ error: `البيانات ناقصة في أحد العناصر` }, { status: 400 });
+      }
 
+      if (typeof quantity !== "number" || isNaN(quantity) || quantity <= 0) {
+        return NextResponse.json({ error: `الكمية غير صالحة للمنتج "${name}"` }, { status: 400 });
+      }
+
+      // Handle "agel" deposit case
+      if (_id === "agel") {
         const depositAmount = parseFloat(quantity);
         if (isNaN(depositAmount) || depositAmount <= 0) {
           return NextResponse.json({ error: "قيمة المبلغ غير صالحة" }, { status: 400 });
         }
-
         totalCost += depositAmount;
-        console.log(`إيداع مبلغ ${depositAmount} جنيه`);
-        
         reasons.push(`إيداع مبلغ ${depositAmount} جنيه`);
         continue;
       }
 
-      const product = await Product.findOne({ name });
+      const product = await Product.findOne({ _id });
+
       if (!product) {
-        console.warn(`المنتج "${name}" غير موجود`);
-        continue;
+        return NextResponse.json({ error: `المنتج "${name}" غير موجود` }, { status: 404 });
       }
 
-      if (product.expiryDate && new Date(product.expiryDate) < now) {
+      // Validate product data before sale
+      if (product.quantity == null || isNaN(product.quantity) || product.quantity < 0) {
+        return NextResponse.json({ error: `كمية المنتج "${product.name}" غير صالحة في قاعدة البيانات` }, { status: 400 });
+      }
+
+      if (product.purchasePrice == null || isNaN(product.purchasePrice) || product.purchasePrice <= 0) {
+        return NextResponse.json({ error: `المنتج "${product.name}" لا يحتوي على سعر شراء صالح` }, { status: 400 });
+      }
+
+      if (product.price == null || isNaN(product.price) || product.price < 0) {
+        return NextResponse.json({ error: `المنتج "${product.name}" لا يحتوي على سعر بيع صالح` }, { status: 400 });
+      }
+
+      // Check expiry
+      if (product.expiryDate && !isNaN(new Date(product.expiryDate)) && new Date(product.expiryDate) < now) {
         expiredItems.push(name);
         continue;
       }
 
-      if (product.purchasePrice == null) {
-        return NextResponse.json({
-          message: `المنتج "${product.name}" لا يحتوي على سعر شراء (purchasePrice)`,
-        }, { status: 400 });
+      // Handle unit conversion
+      let quantityToDecrement = quantity;
+      const isDifferentUnit = unit !== product.unit;
+      const conversion = typeof product.unitConversion === "number" ? product.unitConversion : 1;
+
+      if (isDifferentUnit) {
+        if (!conversion || isNaN(conversion) || conversion <= 0) {
+          return NextResponse.json({ error: `لا يمكن تحويل الوحدة "${unit}" للمنتج "${name}"` }, { status: 400 });
+        }
+        quantityToDecrement = quantity / conversion;
       }
 
-      let quantityToDecrement = quantity;
-      if (unit !== product.unit && product.unitConversion) {
-        quantityToDecrement = quantity / product.unitConversion;
+      // Prevent selling more than available stock
+      if (quantityToDecrement > product.quantity) {
+        return NextResponse.json({
+          error: `الكمية المطلوبة (${quantityToDecrement}) أكبر من المتوفرة (${product.quantity}) للمنتج "${product.name}"`,
+        }, { status: 400 });
       }
 
       const cost = quantityToDecrement * (product.price || 0);
@@ -151,6 +187,7 @@ if (_id === "agel") {
     }
 
     return NextResponse.json({
+      success: true,
       message: "تم حفظ الطلب وتحديث الكمية وتسجيل الدخل بنجاح",
     }, { status: 201 });
 
@@ -161,25 +198,7 @@ if (_id === "agel") {
 }
 
 
-// Units by product type
-const typesWithUnits = {
-  "مضاد حيوي شرب": ["علبة"],
-  "مضاد حيوي برشام": ["شريط", "علبة"],
-  "دواء عادي برشام": ["شريط", "علبة"],
-  "فيتامين برشام": ["شريط", "علبة"],
-  "فيتامين شرب": ["علبة"],
-  "دواء شرب عادي": ["علبة"],
-  "نقط فم": ["علبة"],
-  "نقط أنف": ["علبة"],
-  "بخاخ فم": ["علبة"],
-  "بخاخ أنف": ["علبة"],
-  "مرهم": ["علبة"],
-  "مستحضرات": ["علبة"],
-  "لبوس": ["شريط", "علبة"],
-  "حقن": ["أمبول", "علبة"],  
-  "فوار":["كيس","علبة"],
-  "agel": ["مبلغ"] 
-};
+
 
 function getUnitsForType(type) {
   return typesWithUnits[type] || ["علبة"];

@@ -7,7 +7,10 @@ const productSchema = new mongoose.Schema({
   quantity: { type: Number, required: true, default: 0 },
   price: { type: Number, required: true, min: 0 },
   purchasePrice: { type: Number, required: true },
-  unitConversion: { type: Number, default: null },
+  unitConversion: {
+    type: Number,
+    default: null,
+  },
   isBaseUnit: {
     type: Boolean,
     default: function () {
@@ -16,11 +19,13 @@ const productSchema = new mongoose.Schema({
   },
   barcode: { type: String, required: true, unique: true },
   expiryDate: { type: Date, required: true },
-
-  // This field will be auto-calculated
+  unitOptions: [{ type: String }],
   isShortcoming: { type: Boolean, default: false },
+  company: {
+    type: String, // Changed from ObjectId to String
+    required: true,
+  },
 });
-
 
 const Product = mongoose.models.Product || mongoose.model('Product', productSchema);
 

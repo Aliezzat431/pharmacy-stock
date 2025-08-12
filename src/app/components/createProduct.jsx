@@ -1,136 +1,204 @@
-"use client";
-import React, { useState } from "react";
+import React, { useState,useEffect } from "react";
 import axios from "axios";
-import { Modal,Box } from "@mui/material";
+import {
+  Modal,
+  Box,
+  Typography,
+  TextField,
+  Select,
+  MenuItem,
+  Button,
+  IconButton,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  Paper,
+  FormControl,
+  InputLabel,
+} from "@mui/material";
 import BarcodeScanner from "./BarcodeScanner";
+import { typesWithUnits } from "../lib/unitOptions";
 
-const typesWithUnits = {
-  "مضاد حيوي شرب": ["علبة"],
-  "مضاد حيوي برشام": ["شريط", "علبة"],
-  "دواء عادي برشام": ["شريط", "علبة"],
-  "فيتامين برشام": ["شريط", "علبة"],
-  "فيتامين شرب": ["علبة"],
-  "دواء شرب عادي": ["علبة"],
-  "نقط فم": ["علبة"],
-  "نقط أنف": ["علبة"],
-  "بخاخ فم": ["علبة"],
-  "بخاخ أنف": ["علبة"],
-  "مرهم": ["علبة"],
-  "مستحضرات": ["علبة"],
-  "لبوس": ["شريط", "علبة"],
-  "حقن": ["أمبول", "علبة"],
-  "فوار":["كيس","علبة"]
-};
-
-const CreateProductForm = ({openModal,setOpenModal}) => {
+const CreateProductForm = ({ openModal, setOpenModal }) => {
   const [form, setForm] = useState({
     name: "",
     type: "",
-    unit: "",
     purchasePrice: "",
     salePrice: "",
     quantity: "",
-    unitsPerLargeUnit: "",
     barcode: "",
     expiryDate: "",
+    unitConversion: "",
   });
 
   const [productList, setProductList] = useState([]);
-const [editingIndex, setEditingIndex] = useState(null);
-const [editingProduct, setEditingProduct] = useState(null);
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [companies, setCompanies] = useState([]);
+  const [selectedCompany, setSelectedCompany] = useState("");
+const [newCompanyName, setNewCompanyName] = useState("");
+const [showNewCompanyInput, setShowNewCompanyInput] = useState(false);
+const [addedCompanies, setAddedCompanies] = useState([]);
 
-const handleBarcodeScan = (scanned) => {
-  setForm((prev) => ({ ...prev, barcode: scanned }));
+const handleAddCompany = (companyName) => {
+  if (!addedCompanies.includes(companyName)) {
+    setAddedCompanies((prev) => [...prev, companyName]);
+  }
 };
 
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
+  useEffect(() => {
+    const fetchCompanies = async () => {
+      try {
+        const res = await axios.get("/api/companies"); // adjust path if needed
+        setCompanies(res.data);
+      } catch (err) {
+        console.error("Failed to fetch companies:", err);
+      }
+    };
 
-    if (name === "type") {
-      const units = typesWithUnits[value] || [];
-      setForm((prev) => ({
-        ...prev,
-        type: value,
-        unit: units[units.length - 1] || "",
-        unitsPerLargeUnit: "",
-      }));
-    } else {
-      setForm((prev) => ({ ...prev, [name]: value }));
+    fetchCompanies();
+  }, []);
+
+ const handleCreateCompany = async (name) => {
+    if (!name.trim()) return alert("يرجى إدخال اسم الشركة");
+    try {
+      const token = localStorage.getItem("token");
+      const res = await axios.post(
+        "/api/companies",
+        { name: name.trim() },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setCompanies((prev) => [...prev, res.data]);
+      handleAddCompany(res.data.name);
+    } catch (err) {
+      console.error("فشل إنشاء الشركة:", err);
+      alert("فشل إنشاء الشركة");
     }
   };
 
-  const hasSmallAndBigUnit =
-    form.type && typesWithUnits[form.type]?.length === 2;
+
+  const handleBarcodeScan = (scanned) => {
+    setForm((prev) => ({ ...prev, barcode: scanned }));
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
 
   const handleAddToList = () => {
-    const validUnits = typesWithUnits[form.type] || [];
-    const hasTwoUnits = validUnits.length === 2;
+    if (!selectedCompany) {
+      alert("يرجى اختيار الشركة المصنعة");
+      return;
+    }
 
     if (
-      !form.name ||
-      !form.type ||
-      !form.unit ||
-      !form.barcode ||
-      !form.purchasePrice ||
-      !form.salePrice ||
-      !form.quantity
+      !form.name.trim() ||
+      !form.type.trim() ||
+      !form.barcode.trim() ||
+      form.purchasePrice === "" ||
+      form.salePrice === "" ||
+      form.quantity === ""
     ) {
       alert("يرجى تعبئة كل الحقول المطلوبة");
       return;
     }
 
+
+
+    if (
+      isNaN(Number(form.purchasePrice)) ||
+      isNaN(Number(form.salePrice)) ||
+      isNaN(Number(form.quantity))
+    ) {
+      alert("الأسعار والكمية يجب أن تكون أرقام صحيحة");
+      return;
+    }
+
     const newProduct = {
-      name: form.name,
-      type: form.type,
-      unit: form.unit,
+      name: form.name.trim(),
+      type: form.type.trim(),
       purchasePrice: parseFloat(form.purchasePrice),
       salePrice: parseFloat(form.salePrice),
       quantity: parseFloat(form.quantity),
-      barcode: form.barcode,
-      expiryDate: form.expiryDate || null,
-      unitConversion: hasTwoUnits
-        ? parseInt(form.unitsPerLargeUnit)
-        : null,
-      isBaseUnit: !hasTwoUnits || form.unit === validUnits[0],
+      barcode: form.barcode.trim(),
+      expiryDate: form.expiryDate ? new Date(form.expiryDate).toISOString() : null,
+      unitConversion: (typesWithUnits[form.type] || []).length > 1 ? parseFloat(form.unitConversion) : null,
+     company: selectedCompany, // ✅ added here
+
     };
 
-    setProductList([...productList, newProduct]);
+console.log(newProduct);
 
+    setProductList((prev) => [...prev, newProduct]);
     setForm({
       name: "",
       type: "",
-      unit: "",
       purchasePrice: "",
       salePrice: "",
       quantity: "",
-      unitsPerLargeUnit: "",
       barcode: "",
       expiryDate: "",
+      unitConversion: "", // add this line
     });
+
   };
 
-const handleProductEditChange = (e) => {
-  const { name, value } = e.target;
-  setEditingProduct((prev) => ({ ...prev, [name]: value }));
-};
+  const handleProductEditChange = (e) => {
+    const { name, value } = e.target;
+    setEditingProduct((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const saveEditedProduct = () => {
+    if (editingIndex !== null && editingProduct) {
+      if (
+        !editingProduct.name.trim() ||
+        !editingProduct.type.trim() ||
+        !editingProduct.unit.trim() ||
+        !editingProduct.barcode.trim() ||
+        editingProduct.purchasePrice === "" ||
+        editingProduct.salePrice === "" ||
+        editingProduct.quantity === ""
+      ) {
+        alert("يرجى تعبئة كل الحقول المطلوبة في التعديل");
+        return;
+      }
+
+      if (
+        isNaN(Number(editingProduct.purchasePrice)) ||
+        isNaN(Number(editingProduct.salePrice)) ||
+        isNaN(Number(editingProduct.quantity))
+      ) {
+        alert("الأسعار والكمية يجب أن تكون أرقام صحيحة في التعديل");
+        return;
+      }
+      if (
+        (typesWithUnits[editingProduct.type] || []).length > 1 &&
+        (editingProduct.unitConversion === "" || isNaN(Number(editingProduct.unitConversion)) || Number(editingProduct.unitConversion) <= 0)
+      ) {
+        alert("يرجى تعبئة حقل تحويل الوحدة بشكل صحيح في التعديل");
+        return;
+      }
 
 
-const saveEditedProduct = () => {
-  if (editingIndex !== null) {
-    const updatedList = [...productList];
-    updatedList[editingIndex] = {
-      ...editingProduct,
-      purchasePrice: parseFloat(editingProduct.purchasePrice),
-      salePrice: parseFloat(editingProduct.salePrice),
-      quantity: parseFloat(editingProduct.quantity),
-    };
-    setProductList(updatedList);
-    setEditingIndex(null);
-    setEditingProduct(null);
-  }
-};
+      const updatedList = [...productList];
+      updatedList[editingIndex] = {
+        ...editingProduct,
+        purchasePrice: parseFloat(editingProduct.purchasePrice),
+        salePrice: parseFloat(editingProduct.salePrice),
+        quantity: parseFloat(editingProduct.quantity),
+        expiryDate: editingProduct.expiryDate ? new Date(editingProduct.expiryDate).toISOString() : null,
+        unitConversion: (typesWithUnits[editingProduct.type] || []).length > 1 ? parseFloat(editingProduct.unitConversion) : null,
+      };
 
+      setProductList(updatedList);
+      setEditingIndex(null);
+      setEditingProduct(null);
+    }
+  };
 
   const handleDelete = (index) => {
     const updatedList = [...productList];
@@ -147,24 +215,49 @@ const handleSubmit = async () => {
   try {
     const token = localStorage.getItem("token");
 
-    // إرسال كل المنتجات في طلب واحد
-    await axios.post(
-      "/api/products", // تأكد أن هذا المسار يقبل أكثر من منتج
-     productList , // إرسال كائن يحتوي على المصفوفة
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
-    );
+    const payload = productList.map((product) => {
+      const {
+        name,
+        type,
+        unit,
+        quantity,
+        barcode,
+        unitConversion,
+        expiryDate,
+        purchasePrice,
+        salePrice,
+        company, // ✅ Include company from the product
+      } = product;
+
+      return {
+        name,
+        type,
+        unit,
+        quantity,
+        barcode,
+        unitConversion,
+        expiryDate: expiryDate ? new Date(expiryDate).toISOString() : null,
+        purchasePrice,
+        salePrice,
+        company, // ✅ Ensure it's sent to backend
+      };
+    });
+
+    await axios.post("/api/products", payload, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
 
     alert("تمت إضافة جميع المنتجات بنجاح");
     setProductList([]);
+    setOpenModal(false);
   } catch (error) {
     console.error("فشل في الإضافة:", error);
     alert("حدث خطأ أثناء الإضافة");
   }
 };
+
 
 
   return (
@@ -177,247 +270,260 @@ const handleSubmit = async () => {
       transform: "translate(-50%, -50%)",
       width: "90vw",
       height: "90vh",
-      bgcolor: "white",
+      bgcolor: "background.paper",
       p: 2,
       borderRadius: 2,
       boxShadow: 24,
-      overflow: "hidden", // منع التمرير العام
-      display: "flex", // توزيع أفقي
+      display: "flex",
+      flexDirection: "row",
       gap: 2,
     }}
   >
-      <BarcodeScanner onScan={handleBarcodeScan} />
+    {/* Barcode Scanner */}
+    <BarcodeScanner onScan={handleBarcodeScan} />
 
-    {/* القائمة على اليسار */}
-    <div className="w-1/2 overflow-y-auto pr-2 border-r">
-      <h2 className="text-lg font-bold mb-2">قائمة المنتجات</h2>
-      {productList.length > 0 ? (
-        <>
-        <div className="border rounded overflow-auto max-h-[80vh]">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-100 sticky top-0">
-              <tr>
-                <th className="p-2">الاسم</th>
-                <th className="p-2">النوع</th>
-                <th className="p-2">الوحدة</th>
-                <th className="p-2">الكمية</th>
-                <th className="p-2">سعر البيع</th>
-                <th className="p-2">حذف</th>
-              </tr>
-            </thead>
-<tbody>
-  {productList.map((p, idx) => (
-    <tr
-      key={idx}
-      className="border-t cursor-pointer hover:bg-gray-50"
-      onClick={() => {
-        setEditingIndex(idx);
-        setEditingProduct({ ...p });
-      }}
-    >
-      <td className="p-2">
-        {editingIndex === idx ? (
-          <input
-            name="name"
-            value={editingProduct.name}
-            onChange={handleProductEditChange}
-            onBlur={saveEditedProduct}
-            className="w-full border rounded p-1"
-          />
-        ) : (
-          p.name
-        )}
-      </td>
+    {/* Product List */}
+    <Box sx={{ width: "50%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Typography variant="h6" mb={2}>قائمة المنتجات</Typography>
 
-      <td className="p-2">
-        {editingIndex === idx ? (
-          <select
-            name="type"
-            value={editingProduct.type}
-            onChange={handleProductEditChange}
-            onBlur={saveEditedProduct}
-            className="w-full border rounded p-1"
-          >
-            {Object.keys(typesWithUnits).map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
+      <Paper sx={{ flexGrow: 1, overflowY: "auto" }}>
+        <Table size="small" stickyHeader>
+          <TableHead>
+            <TableRow>
+              <TableCell>الاسم</TableCell>
+              <TableCell>النوع</TableCell>
+              <TableCell>الوحدة</TableCell>
+              <TableCell>الكمية</TableCell>
+              <TableCell>السعر</TableCell>
+              <TableCell align="center">حذف</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {productList.map((p, idx) => (
+              <TableRow
+                key={idx}
+                hover
+                onClick={() => {
+                  setEditingIndex(idx);
+                  setEditingProduct({ ...p });
+                }}
+              >
+                {["name", "type", "unit", "quantity", "salePrice"].map((field) => (
+                  <TableCell key={field}>
+                    {editingIndex === idx ? (
+                      field === "type" || field === "unit" ? (
+                        <Select
+                          name={field}
+                          value={editingProduct[field]}
+                          onChange={handleProductEditChange}
+                          onBlur={saveEditedProduct}
+                          fullWidth
+                          variant="standard"
+                        >
+                          {(field === "type"
+                            ? Object.keys(typesWithUnits)
+                            : typesWithUnits[editingProduct.type] || []
+                          ).map((val) => (
+                            <MenuItem key={val} value={val}>{val}</MenuItem>
+                          ))}
+                        </Select>
+                      ) : (
+                        <TextField
+                          name={field}
+                          type={["quantity", "salePrice"].includes(field) ? "number" : "text"}
+                          value={editingProduct[field]}
+                          onChange={handleProductEditChange}
+                          onBlur={saveEditedProduct}
+                          fullWidth
+                          variant="standard"
+                        />
+                      )
+                    ) : (
+                      p[field]
+                    )}
+                  </TableCell>
+                ))}
+                <TableCell align="center">
+                  <Button
+                    color="error"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(idx);
+                    }}
+                  >
+                    حذف
+                  </Button>
+                </TableCell>
+              </TableRow>
             ))}
-          </select>
-        ) : (
-          p.type
-        )}
-      </td>
+          </TableBody>
+        </Table>
+      </Paper>
 
-      <td className="p-2">
-        {editingIndex === idx ? (
-          <select
-            name="unit"
-            value={editingProduct.unit}
-            onChange={handleProductEditChange}
-            onBlur={saveEditedProduct}
-            className="w-full border rounded p-1"
-          >
-            {(typesWithUnits[editingProduct.type] || []).map((unit) => (
-              <option key={unit} value={unit}>
-                {unit}
-              </option>
-            ))}
-          </select>
-        ) : (
-          p.unit
-        )}
-      </td>
-
-      <td className="p-2">
-        {editingIndex === idx ? (
-          <input
-            type="number"
-            name="quantity"
-            value={editingProduct.quantity}
-            onChange={handleProductEditChange}
-            onBlur={saveEditedProduct}
-            className="w-full border rounded p-1"
-          />
-        ) : (
-          p.quantity
-        )}
-      </td>
-
-      <td className="p-2">
-        {editingIndex === idx ? (
-          <input
-            type="number"
-            name="salePrice"
-            value={editingProduct.salePrice}
-            onChange={handleProductEditChange}
-            onBlur={saveEditedProduct}
-            className="w-full border rounded p-1"
-          />
-        ) : (
-          p.salePrice
-        )}
-      </td>
-
-      <td className="p-2 text-center">
-        <button
-          onClick={(e) => {
-            e.stopPropagation(); // منع تفعيل التعديل عند الضغط على الحذف
-            handleDelete(idx);
-          }}
-          className="text-red-600"
-        >
-          حذف
-        </button>
-      </td>
-    </tr>
-  ))}
-</tbody>
-
-          </table>
-     
-    
-        </div>
-  <button
-      onClick={handleSubmit}
-        className="bg-green-600 text-white p-2 rounded w-full"
+      <Button
+        onClick={handleSubmit}
+        fullWidth
+        variant="contained"
+        color="success"
+        sx={{ mt: 2 }}
       >
         حفظ كل المنتجات
-      </button>
-        </>
-      ) : (
-        <p className="text-gray-500">لا توجد منتجات بعد.</p>
-      )}
-    </div>
+      </Button>
+    </Box>
 
-    {/* الفورم على اليمين */}
-    <form
-      className="w-1/2 space-y-3 overflow-y-auto px-2"
+    {/* Product Form */}
+    <Box
+      component="form"
+      onSubmit={(e) => e.preventDefault()}
+      sx={{ width: "50%", overflowY: "auto", px: 1 }}
     >
-      <h2 className="text-xl font-bold mb-2">إضافة منتج جديد</h2>
+      <Typography variant="h6" mb={2}>إضافة منتج جديد</Typography>
 
-      <input type="text" name="name" placeholder="اسم الدواء" value={form.name} onChange={handleChange} className="w-full p-2 border rounded" required />
+      <TextField
+        label="اسم الدواء"
+        name="name"
+        value={form.name}
+        onChange={handleChange}
+        fullWidth
+        required
+        sx={{ mb: 2 }}
+      />
 
-      <input type="text" name="barcode" placeholder="الباركود" value={form.barcode} onChange={handleChange} className="w-full p-2 border rounded" required />
+      <TextField
+        label="الباركود"
+        name="barcode"
+        value={form.barcode}
+        onChange={handleChange}
+        fullWidth
+        required
+        sx={{ mb: 2 }}
+      />
 
-      <select name="type" value={form.type} onChange={handleChange} className="w-full p-2 border rounded" required>
-        <option value="">اختر النوع</option>
-        {Object.keys(typesWithUnits).map((type) => (
-          <option key={type} value={type}>
-            {type}
-          </option>
-        ))}
-      </select>
-
-      {form.type && (
-        <select name="unit" value={form.unit} onChange={handleChange} className="w-full p-2 border rounded" required>
-          {(typesWithUnits[form.type] || []).map((unit) => (
-            <option key={unit} value={unit}>
-              {unit}
-            </option>
-          ))}
-        </select>
-      )}
-
-      {hasSmallAndBigUnit && (
-        <input
-          type="number"
-          name="unitsPerLargeUnit"
-          placeholder="عدد الوحدات في العلبة"
-          value={form.unitsPerLargeUnit}
+      <FormControl fullWidth sx={{ mb: 2 }}>
+        <InputLabel>النوع</InputLabel>
+        <Select
+          name="type"
+          value={form.type}
           onChange={handleChange}
-          className="w-full p-2 border rounded"
           required
+          label="النوع"
+        >
+          <MenuItem value=""><em>اختر النوع</em></MenuItem>
+          {Object.keys(typesWithUnits).map((type) => (
+            <MenuItem key={type} value={type}>{type}</MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
+      <FormControl fullWidth sx={{ mb: 2 }}>
+        <InputLabel>الوحدة</InputLabel>
+        <Select
+          name="unit"
+          value={form.unit}
+          disabled
+          label="الوحدة"
+        >
+          <MenuItem value=""><em>اختر الوحدة</em></MenuItem>
+          {(typesWithUnits[form.type] || []).map((unit) => (
+            <MenuItem key={unit} value={unit}>{unit}</MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
+      <TextField
+        label="سعر الشراء"
+        name="purchasePrice"
+        type="number"
+        value={form.purchasePrice}
+        onChange={handleChange}
+        fullWidth
+        required
+        sx={{ mb: 2 }}
+        inputProps={{ min: 0 }}
+      />
+
+      <TextField
+        label="سعر البيع"
+        name="salePrice"
+        type="number"
+        value={form.salePrice}
+        onChange={handleChange}
+        fullWidth
+        required
+        sx={{ mb: 2 }}
+        inputProps={{ min: 0 }}
+      />
+
+      <TextField
+        label="الكمية"
+        name="quantity"
+        type="number"
+        value={form.quantity}
+        onChange={handleChange}
+        fullWidth
+        required
+        sx={{ mb: 2 }}
+        inputProps={{ min: 0 }}
+      />
+
+      {form.type && (typesWithUnits[form.type] || []).length > 1 && (
+        <TextField
+          label="عدد الوحدات الصغيرة في الكبيرة"
+          name="unitConversion"
+          type="number"
+          value={form.unitConversion}
+          onChange={handleChange}
+          fullWidth
+          required
+          inputProps={{ min: 0.000001 }}
+          sx={{ mb: 2 }}
         />
       )}
 
-      <input
-        type="number"
-        name="purchasePrice"
-        placeholder="سعر الشراء (لصيدلي)"
-        value={form.purchasePrice}
-        onChange={handleChange}
-        className="w-full p-2 border rounded"
-        required
-      />
+ <FormControl fullWidth required sx={{ mb: 2 }}>
+  <InputLabel>الشركة المصنعة</InputLabel>
+  <Select
+    value={selectedCompany}
+    onChange={(e) => {
+      const val = e.target.value;
+      if (val === "__add_new__") {
+        const newCompany = prompt("أدخل اسم الشركة الجديدة:");
+        if (newCompany) handleCreateCompany(newCompany);
+      } else {
+        setSelectedCompany(val);
+        handleAddCompany(val);
+      }
+    }}
+    label="الشركة المصنعة"
+  >
+    {companies.map((c) => (
+      <MenuItem key={c._id} value={c.name}>{c.name}</MenuItem>
+    ))}
+    <MenuItem value="__add_new__">➕ إضافة شركة جديدة</MenuItem>
+  </Select>
+</FormControl>
 
-      <input
-        type="number"
-        name="salePrice"
-        placeholder="سعر البيع"
-        value={form.salePrice}
-        onChange={handleChange}
-        className="w-full p-2 border rounded"
-        required
-      />
 
-      <input
-        type="number"
-        name="quantity"
-        placeholder="الكمية"
-        value={form.quantity}
-        onChange={handleChange}
-        className="w-full p-2 border rounded"
-        required
-      />
-
-      <input
+      <TextField
+        label="تاريخ الانتهاء"
         type="date"
         name="expiryDate"
-        placeholder="تاريخ الانتهاء"
         value={form.expiryDate}
         onChange={handleChange}
-        className="w-full p-2 border rounded"
+        fullWidth
+        sx={{ mb: 2 }}
+        InputLabelProps={{ shrink: true }}
       />
 
-      <button
-        type="button"
+      <Button
         onClick={handleAddToList}
-        className="bg-blue-500 text-white w-full p-2 rounded"
+        variant="contained"
+        fullWidth
+        color="primary"
       >
         إضافة للقائمة
-      </button>
-    </form>
+      </Button>
+    </Box>
   </Box>
 </Modal>
 

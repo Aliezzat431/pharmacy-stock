@@ -7,9 +7,10 @@ const itemSchema = new mongoose.Schema({
   unit: { type: String, required: true },
   total: { type: Number, required: true },
   unitOptions: [{ type: String }],
-  fullProduct: {
-    type: Object, // or use more structure if needed
-    required: true,
+fullProduct: {
+    type: Object,
+    required: false, // <-- make it optional here
+    default: null,
   },
 });
 
@@ -22,6 +23,7 @@ const orderSchema = new mongoose.Schema({
 const debtorSchema = new mongoose.Schema({
   name: { type: String, required: true },
   orders: [orderSchema],
+  partialPayments: { type: Number, default: 0 }, // 👈 أضف هذا السطر
 });
 
 const Debtor = mongoose.models.Debtor || mongoose.model("Debtor", debtorSchema);

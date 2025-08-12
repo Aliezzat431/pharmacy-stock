@@ -14,21 +14,19 @@ import {
   TextField,
   Dialog,
   DialogTitle,
-  DialogContent,
   DialogActions,
   Snackbar,
   Alert,
   Box,
-  IconButton,
   MenuItem,
   Select,
   TableFooter,
-  FormControl,
-  InputLabel,
+  IconButton,
 } from "@mui/material";
-import CloseIcon from "@mui/icons-material/Close";
+import DeleteIcon from "@mui/icons-material/Delete";
 import axios from "axios";
 import BarcodeScanner from "../components/BarcodeScanner";
+import ProductSelectDialog from "../components/productSelectDialog";
 
 const typesWithUnits = {
   "مضاد حيوي شرب": ["علبة"],
@@ -47,10 +45,6 @@ const typesWithUnits = {
   "حقن": ["أمبول", "علبة"],
 };
 
-
-
-
-
 const ReturnsPage = () => {
   const [items, setItems] = useState([]);
   const [products, setProducts] = useState([]);
@@ -62,41 +56,36 @@ const ReturnsPage = () => {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [tempQuantity, setTempQuantity] = useState(1);
   const [tempUnit, setTempUnit] = useState("");
+  const [tempExpiry, setTempExpiry] = useState("");
+  const [variants, setVariants] = useState([]);
+  const [tempSelections, setTempSelections] = useState([]);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState(null);
 
   const getUnitFactor = (unit, selectedProduct) => {
-    const baseUnit = typesWithUnits[selectedProduct.type]?.[0]; // مثل "شريط"
-    const otherUnit = typesWithUnits[selectedProduct.type]?.[1]; // مثل "علبة"
+    const baseUnit = typesWithUnits[selectedProduct.type]?.[0];
+    const otherUnit = typesWithUnits[selectedProduct.type]?.[1];
     const conversion = selectedProduct.unitConversion;
-
     if (unit === baseUnit) return 1;
     if (unit === otherUnit) return conversion;
-    return 1; // fallback
+    return 1;
   };
 
   const calculateRemaining = (product, usedQty, usedUnit) => {
     if (!product || !usedUnit) return "";
-
-    const conversion = product.unitConversion;
-    const units = typesWithUnits[product.type] || [product.unit];
-    const smallUnit = units[0];
-    const bigUnit = units[1] || product.unit;
-
-    const stockInSmallUnit = product.quantity * (product.unit === smallUnit ? 1 : conversion);
-    const usedInSmallUnit = usedQty * (usedUnit === smallUnit ? 1 : conversion);
-    const remainingInSmallUnit = stockInSmallUnit + usedInSmallUnit;
-    const remainingInBoxes = remainingInSmallUnit / conversion;
-
-    return remainingInBoxes;
+    const conversion = product.unitConversion || 1;
+    const isUsedInBox = usedUnit === product.unit;
+    const usedInStrips = usedQty * (isUsedInBox ? conversion : 1);
+    const currentStockInStrips = product.quantity * conversion;
+    const remainingInStrips = currentStockInStrips + usedInStrips;
+    const remainingInBoxes = remainingInStrips / conversion;
+    return `${remainingInBoxes.toFixed(2)} ${product.unit}`;
   };
-
-
-
-
 
   const fetchProducts = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await axios.get("/api/returns", {
+      const res = await axios.get("/api/checkout", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const rawProducts = res.data.treatments || [];
@@ -118,44 +107,55 @@ const ReturnsPage = () => {
     if (showSearch) setSearchResults(products);
   }, [products]);
 
-
   const calculateUnitPrice = (product, unit) => {
     if (!product) return 0;
-    if (unit !== product.unit && product.unitConversion && product.unitConversion[unit]) {
+    if (
+      unit !== product.unit &&
+      product.unitConversion &&
+      product.unitConversion[unit]
+    ) {
       return product.price / product.unitConversion[unit];
     }
     return product.price;
   };
 
-
-
-  const handleAddProductClick = (product) => {
-    setSelectedProduct(product);
-    setTempQuantity(1);
-    setTempUnit(product.unitOptions?.[0] || product.unit);
-    setShowSearch(false);
-  };
-
-  const handleConfirmAdd = () => {
+  // FIXED: now replaces quantity instead of adding on top of already updated value
+  const handleAddProduct = () => {
     if (!selectedProduct) return;
-    const price = calculateUnitPrice(selectedProduct, tempUnit);
-    const newItem = {
-      name: selectedProduct.name,
-      _id: selectedProduct._id,
-      price,
-      quantity: tempQuantity,
-      unit: tempUnit,
-      total: price * tempQuantity,
-      unitOptions: selectedProduct.unitOptions || [selectedProduct.unit],
-      fullProduct: selectedProduct,
-      expiryDate: selectedProduct.expiryDate,
-    };
+    const unit = tempUnit || selectedProduct.unitOptions?.[0] || selectedProduct.unit;
+    const price = calculateUnitPrice(selectedProduct, unit);
+
     setItems((prev) => {
-      const next = [...prev, newItem];
-      setTotal(next.reduce((sum, i) => sum + i.total, 0));
-      return next;
+      const existingIndex = prev.findIndex((i) => i._id === selectedProduct._id && i.unit === unit);
+
+      if (existingIndex !== -1) {
+        // update quantity to the new value instead of adding
+        const updated = [...prev];
+        updated[existingIndex].quantity = tempQuantity;
+        updated[existingIndex].total = updated[existingIndex].quantity * updated[existingIndex].price;
+        setTotal(updated.reduce((sum, i) => sum + i.total, 0));
+        return updated;
+      } else {
+        const newItem = {
+          name: selectedProduct.name,
+          _id: selectedProduct._id,
+          price,
+          quantity: tempQuantity,
+          unit,
+          total: price * tempQuantity,
+          unitOptions: selectedProduct.unitOptions || [selectedProduct.unit],
+          fullProduct: selectedProduct,
+          expiryDate: selectedProduct.expiryDate,
+        };
+        const next = [...prev, newItem];
+        setTotal(next.reduce((sum, i) => sum + i.total, 0));
+        return next;
+      }
     });
+
     setSelectedProduct(null);
+    setTempQuantity(1);
+    setTempUnit("");
   };
 
   const handleFieldChange = (idx, field, value) => {
@@ -171,6 +171,26 @@ const ReturnsPage = () => {
       setTotal(next.reduce((sum, i) => sum + i.total, 0));
       return next;
     });
+  };
+
+  const requestDeleteItem = (idx) => {
+    const settings = JSON.parse(localStorage.getItem("settings-options") || "{}");
+    if (settings.showReturnsConfirm) {
+      setProductToDelete(idx);
+      setDeleteConfirmOpen(true);
+    } else {
+      handleDeleteItem(idx);
+    }
+  };
+
+  const handleDeleteItem = (idx) => {
+    setItems((prev) => {
+      const next = prev.filter((_, i) => i !== idx);
+      setTotal(next.reduce((sum, i) => sum + i.total, 0));
+      return next;
+    });
+    setDeleteConfirmOpen(false);
+    setProductToDelete(null);
   };
 
   const doSave = async () => {
@@ -207,50 +227,51 @@ const ReturnsPage = () => {
       <BarcodeScanner
         onScan={(barcode) => {
           const product = products.find((p) => p.barcode?.toString() === barcode);
-console.log(barcode);
-
           if (!product) {
             alert(`🚫 لم يتم العثور على منتج بالباركود: ${barcode}`);
             return;
           }
-
           const expiry = new Date(product.expiryDate).setHours(0, 0, 0, 0);
           const today = new Date().setHours(0, 0, 0, 0);
-
           if (expiry <= today) {
             const confirm = window.confirm("⚠️ هذا المنتج منتهي الصلاحية، هل تريد إضافته؟");
             if (!confirm) return;
           }
 
-          const alreadyAdded = items.some((item) => item._id === product._id);
-          if (alreadyAdded) {
-            alert("✅ هذا المنتج مضاف بالفعل.");
-            return;
-          }
-
           const unit = product.unitOptions?.[0] || product.unit;
           const price = calculateUnitPrice(product, unit);
-          const total = price * 1;
 
-          setItems((prev) => [
-            ...prev,
-            {
-              _id: product._id,
-              name: product.name,
-              price,
-              quantity: 1,
-              unit,
-              unitOptions: product.unitOptions || [product.unit],
-              expiryDate: product.expiryDate,
-              total,
-              fullProduct: product,
-                  isShortcoming: product.isShortcoming, // 👈 Add this line
+          setItems((prev) => {
+            const existingIndex = prev.findIndex((i) => i._id === product._id && i.unit === unit);
 
-            },
-          ]);
+            if (existingIndex !== -1) {
+              const updated = [...prev];
+              updated[existingIndex].quantity += 1;
+              updated[existingIndex].total = updated[existingIndex].quantity * updated[existingIndex].price;
+              setTotal(updated.reduce((sum, i) => sum + i.total, 0));
+              return updated;
+            } else {
+              const next = [
+                ...prev,
+                {
+                  _id: product._id,
+                  name: product.name,
+                  price,
+                  quantity: 1,
+                  unit,
+                  unitOptions: product.unitOptions || [product.unit],
+                  expiryDate: product.expiryDate,
+                  total: price * 1,
+                  fullProduct: product,
+                  isShortcoming: product.isShortcoming,
+                },
+              ];
+              setTotal(next.reduce((sum, i) => sum + i.total, 0));
+              return next;
+            }
+          });
         }}
       />
-
 
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
         <Typography variant="h5">إجمالي المرتجع: {total} جنيه</Typography>
@@ -273,20 +294,15 @@ console.log(barcode);
               <TableCell>السعر</TableCell>
               <TableCell>الكمية</TableCell>
               <TableCell>الوحدة</TableCell>
-              <TableCell>المتبقي </TableCell>
+              <TableCell>المتبقي</TableCell>
               <TableCell>تاريخ الإنتهاء</TableCell>
               <TableCell>المجموع</TableCell>
+              <TableCell>حذف</TableCell>
             </TableRow>
           </TableHead>
- <TableBody>
-  {items.map((it, idx) => (
-    <TableRow
-      key={idx}
-      sx={{
-        backgroundColor: calculateRemaining(it.fullProduct, it.quantity, it.unit)<5 ? "#fff9c4" : "inherit", // 👈 yellow if shortcoming
-      }}
-    >
-
+          <TableBody>
+            {items.map((it, idx) => (
+              <TableRow key={idx}>
                 <TableCell>{it.name}</TableCell>
                 <TableCell>{it.price}</TableCell>
                 <TableCell>
@@ -310,21 +326,24 @@ console.log(barcode);
                     ))}
                   </Select>
                 </TableCell>
-                <TableCell>
-                  {calculateRemaining(it.fullProduct, it.quantity, it.unit)}
-                </TableCell>
+                <TableCell>{calculateRemaining(it.fullProduct, it.quantity, it.unit)}</TableCell>
                 <TableCell>
                   {it.expiryDate
                     ? new Date(it.expiryDate).toLocaleDateString("ar-EG")
                     : "—"}
                 </TableCell>
                 <TableCell>{it.total}</TableCell>
+                <TableCell>
+                  <IconButton color="error" onClick={() => requestDeleteItem(idx)}>
+                    <DeleteIcon />
+                  </IconButton>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
           <TableFooter>
             <TableRow>
-              <TableCell colSpan={6} align="center" onClick={() => setShowSearch(true)} style={{ cursor: "pointer" }}>
+              <TableCell colSpan={8} align="center" onClick={() => setShowSearch(true)} style={{ cursor: "pointer" }}>
                 ➕ إضافة منتج
               </TableCell>
             </TableRow>
@@ -332,152 +351,27 @@ console.log(barcode);
         </Table>
       </TableContainer>
 
-      <Dialog open={showSearch} onClose={() => { setShowSearch(false) }} fullWidth maxWidth="md">
-        <DialogTitle>
-          البحث عن صنف
-          <IconButton
-            onClick={() => setShowSearch(false)}
-            sx={{ position: "absolute", left: 8, top: 8 }}
-          >
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
+      <ProductSelectDialog
+        open={showSearch}
+        onClose={() => setShowSearch(false)}
+        products={products}
+        searchResults={searchResults}
+        setSearchResults={setSearchResults}
+        selectedProduct={selectedProduct}
+        setSelectedProduct={setSelectedProduct}
+        tempSelections={tempSelections}
+        tempQuantity={tempQuantity}
+        setTempQuantity={setTempQuantity}
+        tempUnit={tempUnit}
+        setTempUnit={setTempUnit}
+        tempExpiry={tempExpiry}
+        setTempExpiry={setTempExpiry}
+        variants={variants}
+        setVariants={setVariants}
+        handleAddProduct={handleAddProduct}
+      />
 
-        <DialogContent>
-          <TextField
-            fullWidth
-            placeholder="اكتب اسم الدواء..."
-            onChange={(e) =>
-              setSearchResults(
-                products.filter((p) =>
-                  p.name.toLowerCase().includes(e.target.value.toLowerCase())
-                )
-              )
-            }
-            sx={{ mb: 2 }}
-          />
-
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>الاسم</TableCell>
-                <TableCell>النوع</TableCell>
-                <TableCell>الكمية</TableCell>
-                <TableCell>إضافة</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {searchResults.map((p) => (
-                <TableRow
-                  key={p._id}
-                  hover
-                  onClick={() => {
-                    setSelectedProduct(p);
-                    setTempQuantity(1);
-                    setTempUnit(p.unitOptions?.[0] || p.unit);
-                  }}
-                  style={{
-                    cursor: "pointer",
-                    backgroundColor: selectedProduct?._id === p._id ? "#f0f0f0" : "inherit",
-                  }}
-                >
-                  <TableCell>{p.name}</TableCell>
-                  <TableCell>{p.type}</TableCell>
-                  <TableCell>{p.quantity}</TableCell>
-                  <TableCell>➕</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-
-          {selectedProduct && (
-            <Box
-              sx={{
-                mt: 3,
-                borderTop: "1px solid #ccc",
-                pt: 2,
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 2,
-                alignItems: "center",
-              }}
-            >
-
-
-              <TextField
-                label="الكمية"
-                type="number"
-                size="small"
-                value={tempQuantity}
-                onChange={(e) => setTempQuantity(Number(e.target.value))}
-                sx={{ width: 100 }}
-              />
-
-              <FormControl sx={{ width: 100 }} size="small">
-                <InputLabel>الوحدة</InputLabel>
-                <Select
-                  value={tempUnit}
-                  label="الوحدة"
-                  onChange={(e) => setTempUnit(e.target.value)}
-                >
-                  {selectedProduct.unitOptions?.map((u) => (
-                    <MenuItem key={u} value={u}>
-                      {u}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-
-              <TextField
-                label="المتبقي"
-                size="small"
-                value={calculateRemaining(selectedProduct, tempQuantity, tempUnit)}
-                InputProps={{ readOnly: true }}
-                sx={{ width: 100 }}
-              />
-
-
-
-
-              <TextField
-                label="السعر"
-                size="small"
-                value={calculateUnitPrice(selectedProduct, tempUnit)}
-                InputProps={{ readOnly: true }}
-                sx={{ width: 100 }}
-              />
-
-              <TextField
-                label="الصلاحية"
-                size="small"
-                value={
-                  selectedProduct.expiryDate
-                    ? new Date(selectedProduct.expiryDate).toLocaleDateString("EG")
-                    : "—"
-                }
-                InputProps={{}}
-                sx={{ width: 130 }}
-              />
-            </Box>
-
-          )}
-        </DialogContent>
-
-        {selectedProduct && (
-          <DialogActions>
-            <Button onClick={() => setShowSearch(false)} color="error">
-              إلغاء
-            </Button>
-            <Button onClick={() => { handleConfirmAdd(); setShowSearch(false) }} variant="contained">
-              إضافة
-            </Button>
-          </DialogActions>
-        )}
-      </Dialog>
-
-
-
+      {/* Save Confirmation */}
       <Dialog open={showConfirmPopup} onClose={() => setShowConfirmPopup(false)}>
         <DialogTitle>هل تريد حفظ المرتجع؟</DialogTitle>
         <DialogActions>
@@ -485,6 +379,17 @@ console.log(barcode);
             نعم
           </Button>
           <Button onClick={() => setShowConfirmPopup(false)}>إلغاء</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <Dialog open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)}>
+        <DialogTitle>هل أنت متأكد أنك تريد حذف هذا المنتج؟</DialogTitle>
+        <DialogActions>
+          <Button color="error" onClick={() => handleDeleteItem(productToDelete)}>
+            حذف
+          </Button>
+          <Button onClick={() => setDeleteConfirmOpen(false)}>إلغاء</Button>
         </DialogActions>
       </Dialog>
     </Container>
