@@ -3,9 +3,9 @@ import OpenAI from "openai";
 
 const openai = new OpenAI({
     baseURL: "https://openrouter.ai/api/v1",
-    apiKey: process.env.OPENROUTER_API_KEY,
+    apiKey: process.env.OPENAI_API_KEY,
     defaultHeaders: {
-        "HTTP-Referer": "http://localhost:3000",
+        "HTTP-Referer": "https://pharmacy-stock21312.vercel.app",
         "X-Title": "Pharmacy Manager App",
     }
 });
@@ -36,7 +36,7 @@ export async function POST(req) {
             incomeReasons: allOrders.filter(o => o.type === 'in').map(o => `${o.amount} ج.م: ${o.reason}`).slice(0, 10)
         };
 
-        if (process.env.OPENROUTER_API_KEY) {
+        if (process.env.OPENAI_API_KEY) {
             console.log("[AI Report] Generating real report via OpenRouter...");
             try {
                 const prompt = `
