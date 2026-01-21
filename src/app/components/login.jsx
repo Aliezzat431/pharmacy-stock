@@ -91,7 +91,7 @@ const Login = () => {
         borderRadius: '24px',
         textAlign: 'center',
         bgcolor: 'var(--glass-bg)',
-        backgroundImage: 'url(/Bg.jpeg)',
+     
         backdropFilter: 'blur(10px)',
         border: '1px solid var(--glass-border)'
       }}>
