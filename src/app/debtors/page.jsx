@@ -94,191 +94,206 @@ const DebtorsPage = () => {
   };
 
   return (
-    <Container maxWidth="md" dir="rtl" sx={{ mt: 5, pb: 5 }}>
+    <Container maxWidth="lg" sx={{ py: 4, direction: 'rtl' }}>
+      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Typography variant="h4" sx={{ fontWeight: 800, color: 'var(--primary)', letterSpacing: '-0.5px' }}>
+          👥 حسابات العملاء
+        </Typography>
+      </Box>
+
       <TextField
         fullWidth
-        size="small"
         variant="outlined"
-        placeholder="ابحث عن مدين..."
+        placeholder="ابحث عن اسم العميل أو المبلغ..."
         value={search}
         onChange={e => setSearch(e.target.value)}
-        sx={{ mb: 3 }}
+        sx={{
+          mb: 4,
+          '& .MuiOutlinedInput-root': {
+            bgcolor: 'var(--glass-bg)',
+            borderRadius: '16px',
+            border: '1px solid var(--glass-border)',
+            '& fieldset': { border: 'none' }
+          }
+        }}
         InputProps={{
           startAdornment: (
             <InputAdornment position="start">
-              <SearchIcon color="action" fontSize="small" />
+              <SearchIcon sx={{ color: 'var(--primary)', opacity: 0.7 }} />
             </InputAdornment>
           )
         }}
       />
 
-      <Box display="grid" gap={1.5}>
+      <Box display="grid" gridTemplateColumns={{ xs: '1fr', md: '1fr 1fr' }} gap={2}>
         {filteredDebtors.map((debtor, idx) => (
-          <Card
+          <Paper
             key={idx}
-            elevation={2}
+            className="glass-card"
             sx={{
+              p: 3,
               cursor: 'pointer',
-              borderRadius: 2,
-              transition: '0.2s',
-              '&:hover': { boxShadow: 4 },
-              backgroundColor: '#fff',
+              borderRadius: '20px',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              border: '1px solid var(--glass-border)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+              '&:hover': {
+                transform: 'translateY(-5px)',
+                boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
+                borderColor: 'var(--primary)'
+              },
             }}
             onClick={() => {
               setSelectedDebtor(debtor);
               setPayAmount('');
             }}
           >
-            <CardContent sx={{ px: 2, py: 1.5 }}>
-              <Box display="flex" justifyContent="space-between" alignItems="center">
-                <Box display="flex" alignItems="center" gap={1}>
-                  <PersonIcon color="primary" fontSize="small" />
-                  <Typography variant="subtitle2" fontWeight={600}>
-                    {debtor.name}
-                  </Typography>
+            <Box display="flex" justifyContent="space-between" alignItems="start">
+              <Box display="flex" alignItems="center" gap={2}>
+                <Box sx={{
+                  width: 48, height: 48, borderRadius: '12px',
+                  bgcolor: 'rgba(var(--primary-rgb), 0.1)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                  <PersonIcon sx={{ color: 'var(--primary)' }} />
                 </Box>
-                <Box display="flex" alignItems="center" gap={0.5}>
-                  <MoneyOffIcon sx={{ color: 'red' }} fontSize="small" />
-                  <Typography variant="subtitle2" color="error">
-                    {(debtor.totalOrders || 0) - (debtor.partialPayments || 0)} جنيه
-                  </Typography>
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: 800 }}>{debtor.name}</Typography>
+                  <Typography variant="caption" sx={{ opacity: 0.6 }}>اخر معاملة: {new Date(debtor.updatedAt).toLocaleDateString("ar-EG")}</Typography>
                 </Box>
               </Box>
-            </CardContent>
-          </Card>
+              <Chip
+                label={`${((debtor.totalOrders || 0) - (debtor.partialPayments || 0)).toLocaleString()} ج.م`}
+                color="error"
+                sx={{ fontWeight: 800, borderRadius: '8px' }}
+              />
+            </Box>
+
+            <Divider sx={{ borderColor: 'var(--glass-border)' }} />
+
+            <Box display="flex" justifyContent="space-between" alignItems="center">
+              <Typography variant="body2" sx={{ opacity: 0.8, fontWeight: 600 }}>إجمالي المسحوبات: {debtor.totalOrders?.toLocaleString()} ج.م</Typography>
+              <Button size="small" variant="text" sx={{ fontWeight: 700 }}>عرض التفاصيل ➔</Button>
+            </Box>
+          </Paper>
         ))}
 
         {filteredDebtors.length === 0 && (
-          <Typography variant="body2" align="center" color="text.secondary">
-            لا يوجد مدينون مطابقون
-          </Typography>
+          <Box gridColumn="1 / -1" sx={{ py: 10, textAlign: 'center', opacity: 0.5 }}>
+            <Typography variant="h6">لا يوجد عملاء يطابقون بحثك</Typography>
+          </Box>
         )}
       </Box>
 
       <Dialog
         open={!!selectedDebtor}
         onClose={() => setSelectedDebtor(null)}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
-        PaperProps={{ sx: { borderRadius: 2 } }}
+        PaperProps={{
+          sx: {
+            borderRadius: '24px',
+            bgcolor: 'var(--glass-bg)',
+            backdropFilter: 'blur(16px)',
+            border: '1px solid var(--glass-border)',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)'
+          }
+        }}
       >
-        <DialogTitle
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1,
-            fontSize: 16,
-            fontWeight: 'bold',
-            py: 1.5,
-            px: 2
-          }}
-        >
-          <InfoIcon color="primary" fontSize="small" />
-          تفاصيل المديونية: {selectedDebtor?.name}
+        <DialogTitle component="div" sx={{ p: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box display="flex" alignItems="center" gap={1.5}>
+            <InfoIcon sx={{ color: 'var(--primary)' }} />
+            <Typography variant="h5" sx={{ fontWeight: 800 }}>كشف حساب: {selectedDebtor?.name}</Typography>
+          </Box>
+          <IconButton onClick={() => setSelectedDebtor(null)} size="small">
+            <CloseIcon />
+          </IconButton>
         </DialogTitle>
 
-        <Box
-          sx={{
-            maxHeight: '55vh',
-            overflowY: 'auto',
-            bgcolor: "#fafafa",
-            px: 2,
-            pt: 1
-          }}
-        >
-          {selectedDebtor?.orders.map((order, index) => (
-            <Box key={index} mb={3}>
-              <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
-                <Typography variant="body2" fontWeight="bold">طلب رقم {index + 1}</Typography>
-                <Typography variant="caption" color="primary">الإجمالي: {order.total} جنيه</Typography>
-              </Box>
+        <DialogContent dividers sx={{ p: 0, border: 'none' }}>
+          <Box sx={{ p: 3, maxHeight: '60vh', overflowY: 'auto' }}>
+            {selectedDebtor?.orders.map((order, index) => (
+              <Box key={index} sx={{ mb: 4 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>رقم الطلب {index + 1}</Typography>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 800, color: 'var(--primary)' }}>الإجمالي: {order.total.toLocaleString()} ج.م</Typography>
+                </Box>
 
-              <TableContainer component={Paper} elevation={0}>
-                <Table size="small">
-                  <TableHead sx={{ backgroundColor: '#eaeaea' }}>
-                    <TableRow>
-                      <TableCell>المنتج</TableCell>
-                      <TableCell>الكمية</TableCell>
-                      <TableCell>السعر</TableCell>
-                      <TableCell>الإجمالي</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {order.items.map((item, i) => (
-                      <TableRow key={i}>
-                        <TableCell>{item.name}</TableCell>
-                        <TableCell>{item.quantity} {item.unit}</TableCell>
-                        <TableCell>{item.price}</TableCell>
-                        <TableCell>{item.total}</TableCell>
+                <TableContainer className="glass-card" sx={{ borderRadius: '12px', border: '1px solid var(--glass-border)' }}>
+                  <Table size="small" className="modern-table">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 800 }}>المنتج</TableCell>
+                        <TableCell align="center" sx={{ fontWeight: 800 }}>الكمية</TableCell>
+                        <TableCell align="center" sx={{ fontWeight: 800 }}>السعر</TableCell>
+                        <TableCell align="center" sx={{ fontWeight: 800 }}>الإجمالي</TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Box>
-          ))}
-        </Box>
-
-        <Divider sx={{ my: 1.5 }} />
-
-        <Box sx={{ px: 2, pb: 2 }}>
-          <Typography variant="body2" gutterBottom>
-            أدخل المبلغ المدفوع نقدًا:
-          </Typography>
-          <TextField
-            type="number"
-            value={payAmount}
-            onChange={(e) => setPayAmount(e.target.value)}
-            fullWidth
-            size="small"
-            placeholder="مثلاً: 100"
-            inputProps={{ min: 0 }}
-          />
-
-          <Box mt={2}>
-            <Typography variant="caption" color="green">
-              المدفوع سابقًا: {selectedDebtor?.partialPayments || 0} جنيه
-            </Typography>
-            <Typography variant="subtitle2" fontWeight="bold">
-              بعد الدفع: {calcRemainingAfterPay(selectedDebtor, payAmount)} جنيه
-            </Typography>
+                    </TableHead>
+                    <TableBody>
+                      {order.items.map((item, i) => (
+                        <TableRow key={i}>
+                          <TableCell sx={{ fontWeight: 600 }}>{item.name}</TableCell>
+                          <TableCell align="center">{item.quantity} {item.unit}</TableCell>
+                          <TableCell align="center">{item.price.toLocaleString()} ج.م</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 700 }}>{item.total.toLocaleString()} ج.م</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+            ))}
           </Box>
+        </DialogContent>
 
-          <Box mt={2} display="flex" justifyContent="space-between">
-            <Button
-              onClick={() => setSelectedDebtor(null)}
-              size="small"
-              startIcon={<CloseIcon fontSize="small" />}
-            >
-              إغلاق
-            </Button>
-            <Button
-              onClick={handlePay}
-              size="small"
-              variant="contained"
-              color="success"
-              disabled={!payAmount || isNaN(payAmount) || Number(payAmount) <= 0}
-              startIcon={<PaidIcon fontSize="small" />}
-            >
-              دفع المبلغ
-            </Button>
-          </Box>
+        <Box sx={{ p: 3, bgcolor: 'rgba(var(--primary-rgb), 0.03)', borderTop: '1px solid var(--glass-border)' }}>
+          <Grid container spacing={3} alignItems="center">
+            <Grid item xs={12} md={5}>
+              <TextField
+                type="number"
+                label="سداد مبلغ"
+                value={payAmount}
+                onChange={(e) => setPayAmount(e.target.value)}
+                fullWidth
+                variant="outlined"
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
+              />
+            </Grid>
+            <Grid item xs={12} md={7}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Box>
+                  <Typography variant="caption" sx={{ color: 'success.main', fontWeight: 700 }}>تم سداد سابقاً: {selectedDebtor?.partialPayments?.toLocaleString() || 0} ج.م</Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 800 }}>المتبقي: {calcRemainingAfterPay(selectedDebtor, payAmount).toLocaleString()} ج.م</Typography>
+                </Box>
+                <Button
+                  variant="contained"
+                  onClick={handlePay}
+                  disabled={!payAmount || isNaN(payAmount) || Number(payAmount) <= 0}
+                  startIcon={<PaidIcon />}
+                  sx={{ py: 1.5, px: 4, borderRadius: '12px', fontWeight: 800 }}
+                >
+                  تأكيد الدفع
+                </Button>
+              </Box>
+            </Grid>
+          </Grid>
         </Box>
       </Dialog>
 
-      {/* Snackbar Alert */}
       <Snackbar
         open={alertOpen}
         autoHideDuration={4000}
         onClose={() => setAlertOpen(false)}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
       >
-        <Alert onClose={() => setAlertOpen(false)} severity={alertSeverity} variant="filled">
+        <Alert onClose={() => setAlertOpen(false)} severity={alertSeverity} variant="filled" sx={{ width: '100%', borderRadius: '12px' }}>
           {alertMessage}
         </Alert>
       </Snackbar>
     </Container>
   );
-};
+}
 
 export default DebtorsPage;

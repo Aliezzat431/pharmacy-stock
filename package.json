@@ -2,11 +2,16 @@
   "name": "pharmacy-stock",
   "version": "0.1.0",
   "private": true,
+  "description": "Pharmacy Stock desktop application",
+  "author": "Ali Ezzat",
+  "main": "main.js",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3000",
     "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "start": "next start -p 3000",
+    "lint": "next lint",
+    "electron:dev": "set NODE_ENV=development&& concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron:build": "npm run build && electron-builder"
   },
   "dependencies": {
     "@emotion/react": "^11.11.4",
@@ -18,24 +23,46 @@
     "classnames": "^2.5.1",
     "date-fns": "^2.30.0",
     "dayjs": "^1.11.10",
+    "dotenv": "^17.2.3",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.3.1",
+    "mongoose": "^8.21.0",
     "next": "^15.4.3",
+    "openai": "^6.16.0",
     "react": "^18.2.0",
     "react-beautiful-dnd": "^13.1.1",
     "react-chartjs-2": "^5.2.0",
     "react-dom": "^18.2.0",
     "react-hook-form": "^7.51.4",
-    "react-icons": "^5.2.0",
-    "use-scan-detection": "^0.2.3"
+    "react-icons": "^5.2.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.1.0",
     "@tailwindcss/postcss": "^4.0.0",
     "autoprefixer": "^10.4.19",
+    "concurrently": "^9.2.1",
+    "electron": "^40.0.0",
+    "electron-builder": "^24.13.3",
     "eslint": "^9.0.0",
     "eslint-config-next": "^15.4.3",
     "postcss": "^8.4.31",
-    "tailwindcss": "^4.0.1"
+    "tailwindcss": "^4.0.1",
+    "wait-on": "^9.0.3"
+  },
+  "build": {
+    "appId": "com.pharmacy.stock",
+    "productName": "Pharmacy Stock",
+    "files": [
+      "main.js",
+      "preload.js",
+      "server.js",
+      ".next/**/*",
+      "public/**/*",
+      "package.json",
+      ".env",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    }
   }
 }

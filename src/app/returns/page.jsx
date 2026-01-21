@@ -223,7 +223,7 @@ const ReturnsPage = () => {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4 }}>
+    <Container maxWidth="lg" sx={{ py: 4, direction: 'rtl' }}>
       <BarcodeScanner
         onScan={(barcode) => {
           const product = products.find((p) => p.barcode?.toString() === barcode);
@@ -273,83 +273,138 @@ const ReturnsPage = () => {
         }}
       />
 
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-        <Typography variant="h5">إجمالي المرتجع: {total} جنيه</Typography>
-        <Button variant="contained" color="error" onClick={() => setShowConfirmPopup(true)}>
-          حفظ المرتجع
-        </Button>
+      {/* Header & Stats */}
+      <Box sx={{ mb: 4, display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Typography variant="h4" sx={{ fontWeight: 800, color: 'var(--primary)', letterSpacing: '-0.5px' }}>
+            🔄 مرتجع مبيعات
+          </Typography>
+        </Box>
+
+        <Box className="glass-card" sx={{ px: 4, py: 2, display: 'flex', alignItems: 'center', gap: 4, bgcolor: 'var(--glass-bg)' }}>
+          <Box>
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700, display: 'block' }}>إجمالي المرتجع</Typography>
+            <Typography variant="h5" sx={{ fontWeight: 800, color: 'var(--secondary)' }}>
+              {total.toLocaleString()} ج.م
+            </Typography>
+          </Box>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => setShowConfirmPopup(true)}
+            disabled={items.length === 0}
+            sx={{ borderRadius: '12px', px: 3, fontWeight: 700, height: 45 }}
+          >
+            حفظ المرتجع
+          </Button>
+        </Box>
       </Box>
 
       <Snackbar open={!!successMessage} autoHideDuration={4000} onClose={() => setSuccessMessage("")}>
-        <Alert onClose={() => setSuccessMessage("")} severity="success">
+        <Alert onClose={() => setSuccessMessage("")} severity="success" sx={{ width: '100%' }}>
           {successMessage}
         </Alert>
       </Snackbar>
 
-      <TableContainer component={Paper} sx={{ mb: 2 }}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>الاسم</TableCell>
-              <TableCell>السعر</TableCell>
-              <TableCell>الكمية</TableCell>
-              <TableCell>الوحدة</TableCell>
-              <TableCell>المتبقي</TableCell>
-              <TableCell>تاريخ الإنتهاء</TableCell>
-              <TableCell>المجموع</TableCell>
-              <TableCell>حذف</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {items.map((it, idx) => (
-              <TableRow key={idx}>
-                <TableCell>{it.name}</TableCell>
-                <TableCell>{it.price}</TableCell>
-                <TableCell>
-                  <TextField
-                    type="number"
-                    size="small"
-                    value={it.quantity}
-                    onChange={(e) => handleFieldChange(idx, "quantity", e.target.value)}
-                  />
-                </TableCell>
-                <TableCell>
-                  <Select
-                    size="small"
-                    value={it.unit}
-                    onChange={(e) => handleFieldChange(idx, "unit", e.target.value)}
-                  >
-                    {it.unitOptions.map((u) => (
-                      <MenuItem key={u} value={u}>
-                        {u}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </TableCell>
-                <TableCell>{calculateRemaining(it.fullProduct, it.quantity, it.unit)}</TableCell>
-                <TableCell>
-                  {it.expiryDate
-                    ? new Date(it.expiryDate).toLocaleDateString("ar-EG")
-                    : "—"}
-                </TableCell>
-                <TableCell>{it.total}</TableCell>
-                <TableCell>
-                  <IconButton color="error" onClick={() => requestDeleteItem(idx)}>
-                    <DeleteIcon />
-                  </IconButton>
-                </TableCell>
+      <Paper className="glass-card" sx={{ overflow: 'hidden', border: '1px solid var(--glass-border)' }}>
+        <TableContainer sx={{ maxHeight: '60vh' }}>
+          <Table className="modern-table" stickyHeader>
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 800 }}>المنتج</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>السعر</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>الكمية</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>الوحدة</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>المتبقي (بعد الرد)</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>الصلاحية</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>الإجمالي</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800 }}>إجراءات</TableCell>
               </TableRow>
-            ))}
-          </TableBody>
-          <TableFooter>
-            <TableRow>
-              <TableCell colSpan={8} align="center" onClick={() => setShowSearch(true)} style={{ cursor: "pointer" }}>
-                ➕ إضافة منتج
-              </TableCell>
-            </TableRow>
-          </TableFooter>
-        </Table>
-      </TableContainer>
+            </TableHead>
+            <TableBody>
+              {items.map((it, idx) => (
+                <TableRow key={idx} hover>
+                  <TableCell sx={{ fontWeight: 700 }}>{it.name}</TableCell>
+                  <TableCell align="center">{it.price.toLocaleString()} ج.م</TableCell>
+                  <TableCell align="center">
+                    <TextField
+                      type="number"
+                      size="small"
+                      value={it.quantity}
+                      onChange={(e) => handleFieldChange(idx, "quantity", e.target.value)}
+                      sx={{ width: 80, '& input': { textAlign: 'center', fontWeight: 700 } }}
+                    />
+                  </TableCell>
+                  <TableCell align="center">
+                    <Select
+                      size="small"
+                      value={it.unit}
+                      onChange={(e) => handleFieldChange(idx, "unit", e.target.value)}
+                      sx={{ minWidth: 100, fontWeight: 600 }}
+                    >
+                      {it.unitOptions.map((u) => (
+                        <MenuItem key={u} value={u}>
+                          {u}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </TableCell>
+                  <TableCell align="center">
+                    <Box sx={{ px: 1.5, py: 0.5, borderRadius: 1, bgcolor: 'rgba(var(--primary-rgb), 0.05)', display: 'inline-block', fontWeight: 600 }}>
+                      {calculateRemaining(it.fullProduct, it.quantity, it.unit)}
+                    </Box>
+                  </TableCell>
+                  <TableCell align="center">
+                    <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.secondary' }}>
+                      {it.expiryDate ? new Date(it.expiryDate).toLocaleDateString("ar-EG") : "—"}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 800, color: 'var(--primary)' }}>
+                    {it.total.toLocaleString()} ج.م
+                  </TableCell>
+                  <TableCell align="center">
+                    <IconButton color="error" onClick={() => requestDeleteItem(idx)} size="small">
+                      <DeleteIcon />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))}
+
+              {items.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} align="center" sx={{ py: 8 }}>
+                    <Box sx={{ opacity: 0.5 }}>
+                      <Typography variant="h6">لا توجد منتجات في قائمة المرتجع</Typography>
+                      <Typography variant="body2">قم بمسح الباركود أو الضغط على زر إضافة منتج بالأسفل</Typography>
+                    </Box>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+
+        <Box
+          onClick={() => setShowSearch(true)}
+          sx={{
+            p: 2,
+            textAlign: 'center',
+            cursor: 'pointer',
+            borderTop: '1px solid var(--glass-border)',
+            bgcolor: 'var(--primary)',
+            color: 'white',
+            transition: 'all 0.2s',
+            '&:hover': { bgcolor: 'var(--secondary)', opacity: 0.9 },
+            fontWeight: 800,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 1
+          }}
+        >
+          <span>➕</span> إضافة منتج يدوياً
+        </Box>
+      </Paper>
 
       <ProductSelectDialog
         open={showSearch}

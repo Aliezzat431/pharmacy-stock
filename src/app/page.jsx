@@ -1,104 +1,238 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Container,
   Typography,
   Button,
   Box,
-  Dialog,
-  Paper,
+  Snackbar,
+  Alert,
 } from "@mui/material";
 import axios from "axios";
 import DebtModal from "./components/debtModal";
 import ProductsTable from "./components/productsTable";
 import BarcodeScanner from "./components/BarcodeScanner";
 import ProductSelectDialog from "./components/productSelectDialog";
-import { typesWithUnits } from "./lib/unitOptions";
+import ReceiptModal from "./components/receiptModal";
 
-
+import { useProducts } from "./hooks/useProducts";
+import { useCheckout } from "./hooks/useCheckout";
+import CustomDialog from "./components/common/CustomDialog";
 
 const CheckoutPage = () => {
-  const [items, setItems] = useState([]);
-  const [products, setProducts] = useState([]);
+  const { products, setProducts, decreaseStock, restoreStock } = useProducts();
+  const { items, setItems, total, setTotal, addItem, removeItem, clearCart } = useCheckout();
+
   const [showSearch, setShowSearch] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
-  const [total, setTotal] = useState(0);
+
+  // Selection state for ProductSelectDialog
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [tempQuantity, setTempQuantity] = useState(1);
   const [tempUnit, setTempUnit] = useState("علبة");
   const [tempExpiry, setTempExpiry] = useState("");
   const [variants, setVariants] = useState([]);
   const [tempSelections, setTempSelections] = useState({});
+
   const [showDebt, setShowDebt] = useState(false);
-  const [resetTrigger, setResetTrigger] = useState(false);
+  const [showError, setShowError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const [barcodeNotFound, setBarcodeNotFound] = useState(null);
-  const [checkoutError, setCheckoutError] = useState(null);
 
+  // Success Notification
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("تمت عملية البيع بنجاح ✅");
 
-  const handleReset = () => {
-    setResetTrigger(true);
-    setTimeout(() => setResetTrigger(false), 100);
-  };
+  // Receipt State (still used for debt success but will be disabled there too)
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [lastOrder, setLastOrder] = useState({ items: [], total: 0 });
+  const [pharmacyInfo, setPharmacyInfo] = useState({});
 
-  const fetchProducts = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await axios.get("/api/checkout", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const rawProducts = res.data.treatments || [];
-
-      const expanded = rawProducts.flatMap((product) => {
-        if (product._id === "agel") {
-          return [
-            {
-              ...product,
-              expiryDate: null,
-              expiryOptions: [],
-              unitOptions: product.unitOptions || [
-                { value: "جنيه", label: "جنيه" },
-              ],
-              _id: "agel",
-            },
-          ];
-        }
-
-        const expiryList = (product.expiryOptions || [product.expiryDate])
-          .filter(Boolean)
-          .sort((a, b) => new Date(a) - new Date(b));
-
-        return expiryList.map((expiry) => ({
-          ...product,
-          expiryDate: expiry,
-          expiryOptions: expiryList,
-          unitOptions: typesWithUnits[product.type] || [product.unit],
-          _id: `${product._id}`,
-        }));
-      });
-
-      setProducts(expanded);
-    } catch (error) {
-      console.error(error);
-    }
-  };
+  // Confirmation State
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [isPendingSadaqah, setIsPendingSadaqah] = useState(false);
+  const [settingsOptions, setSettingsOptions] = useState({ showCheckoutConfirm: true });
 
   useEffect(() => {
-    fetchProducts();
+    const info = localStorage.getItem("pharmacy-info");
+    if (info) setPharmacyInfo(JSON.parse(info));
+
+    const options = localStorage.getItem("settings-options");
+    if (options) setSettingsOptions(JSON.parse(options));
   }, []);
 
-  useEffect(() => {
-    if (variants.length > 0) {
-      const earliest = [...variants].sort(
-        (a, b) => new Date(a.expiryDate) - new Date(b.expiryDate)
-      )[0];
-      setSelectedProduct(earliest);
-      setTempExpiry(earliest.expiryDate);
-      setTempUnit(earliest.unitOptions?.[0] || earliest.unit || "علبة");
-      setTempQuantity(1);
-    }
-  }, [variants]);
+  // Helper for resetting dependent state
+  const resetSelection = () => {
+    setSelectedProduct(null);
+    setTempQuantity(1);
+    setTempUnit("علبة");
+    setTempExpiry("");
+    setVariants([]);
+  };
 
+  // Main Logic for Adding Product (from Dialog)
+  const handleAddProduct = () => {
+    if (!selectedProduct) return;
+
+    const price =
+      tempUnit !== selectedProduct.unit && selectedProduct.unitConversion > 0
+        ? selectedProduct.price / selectedProduct.unitConversion
+        : selectedProduct.price;
+
+    const qty = Number(tempQuantity);
+    const conversion = Number(selectedProduct.unitConversion || 1);
+    const soldInBoxes = tempUnit === "شريط" ? qty / conversion : qty;
+
+    // Calculate remaining for UI snapshot (optional, can relay on setProducts update)
+    const originalQty = Number(selectedProduct.quantity || 0);
+    const remaining = Math.max(0, originalQty - soldInBoxes);
+
+    const newItem = {
+      name: selectedProduct.name,
+      _id: selectedProduct._id,
+      price,
+      quantity: qty,
+      unit: tempUnit,
+      total: price * qty,
+      expiry: tempExpiry ? new Date(tempExpiry).toISOString() : null,
+      unitOptions: selectedProduct.unitOptions || [selectedProduct.unit],
+      fullProduct: selectedProduct,
+      remaining,
+    };
+
+    addItem(newItem);
+
+    // Update stock in products list
+    decreaseStock(selectedProduct, soldInBoxes);
+
+    resetSelection();
+    setShowSearch(false);
+  };
+
+  // Barcode Scan Logic
+  const handleScan = useCallback((scanned) => {
+    console.log(`scanned is ${scanned}`);
+    const matchingVariants = products.filter(
+      (p) => p.barcode?.toString() === scanned
+    );
+
+    if (matchingVariants.length === 0) {
+      setBarcodeNotFound(scanned);
+      return;
+    }
+
+    const earliest = [...matchingVariants].sort((a, b) => {
+      const dateA = a.expiryDate
+        ? new Date(a.expiryDate)
+        : new Date(8640000000000000);
+      const dateB = b.expiryDate
+        ? new Date(b.expiryDate)
+        : new Date(8640000000000000);
+      return dateA - dateB;
+    })[0];
+
+    const tempUnit = earliest.unitOptions?.[0] || earliest.unit || "علبة";
+    const tempQuantity = 1;
+    const price =
+      tempUnit !== earliest.unit && earliest.unitConversion > 0
+        ? earliest.price / earliest.unitConversion
+        : earliest.price;
+
+    const qty = Number(tempQuantity);
+    const conversion = Number(earliest.unitConversion || 1);
+    const soldInBoxes = tempUnit === "شريط" ? qty / conversion : qty;
+    const originalQty = Number(earliest.quantity || 0);
+    const remaining = Math.max(0, originalQty - soldInBoxes);
+
+    const newItem = {
+      name: earliest.name,
+      _id: earliest._id,
+      price,
+      quantity: qty,
+      unit: tempUnit,
+      total: price * qty,
+      expiry: earliest.expiryDate
+        ? new Date(earliest.expiryDate).toISOString()
+        : null,
+      unitOptions: earliest.unitOptions || [earliest.unit],
+      fullProduct: earliest,
+      remaining,
+    };
+
+    addItem(newItem);
+    decreaseStock(earliest, soldInBoxes);
+
+  }, [products, addItem, decreaseStock]);
+
+
+  const handleDeleteItem = (index) => {
+    const removedItem = removeItem(index);
+    if (removedItem) {
+      const { _id, expiry, unit, fullProduct, quantity } = removedItem;
+      const unitConversion = Number(fullProduct.unitConversion || 1);
+      const productBaseUnit = fullProduct.unit;
+
+      // Convert back to base unit if necessary (amount to restore)
+      let restoreQty = unit === "شريط" && unit !== productBaseUnit
+        ? quantity / unitConversion
+        : quantity;
+
+      restoreStock(_id, expiry, unit, restoreQty);
+    }
+  };
+
+
+  const handleCheckoutClick = (isSadaqah) => {
+    if (settingsOptions.showCheckoutConfirm) {
+      setIsPendingSadaqah(isSadaqah);
+      setShowConfirm(true);
+    } else {
+      handleCheckout(isSadaqah);
+    }
+  };
+
+  const handleCheckout = async (isSadaqah = false) => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.post(
+        "/api/checkout",
+        { items, isSadaqah },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          validateStatus: () => true,
+        }
+      );
+
+      if (response.status !== 201) {
+        setErrorMessage(
+          response.data?.error ||
+          response.data?.message ||
+          `فشل الدفع (رمز الحالة: ${response.status}) ❌`
+        );
+        setShowError(true);
+        return;
+      }
+
+      // Success - Show notification instead of receipt
+      setSuccessMessage("تمت عملية البيع بنجاح ✅");
+      setShowSuccess(true);
+      clearCart();
+
+    } catch (error) {
+      console.error("Checkout error:", error);
+      const message =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        error.message ||
+        "حدث خطأ أثناء الدفع ❌";
+      setErrorMessage(message);
+      setShowError(true);
+    }
+  };
+
+  // Logic for Product Select Dialog initialization
   useEffect(() => {
     if (showSearch) {
       setSearchResults(products);
@@ -120,199 +254,117 @@ const CheckoutPage = () => {
           product: earliest,
         };
       }
-
       setTempSelections(defaultSelections);
     }
   }, [showSearch, products]);
 
-  const calculateUnitPrice = (product, unit) =>
-    unit !== product.unit && product.unitConversion > 0
-      ? product.price / product.unitConversion
-      : product.price;
+  // Logic for Auto-Selecting Earliest Expiry in Dialog
+  useEffect(() => {
+    if (variants.length > 0) {
+      const earliest = [...variants].sort(
+        (a, b) => new Date(a.expiryDate) - new Date(b.expiryDate)
+      )[0];
+      setSelectedProduct(earliest);
+      setTempExpiry(earliest.expiryDate);
+      setTempUnit(earliest.unitOptions?.[0] || earliest.unit || "علبة");
+      setTempQuantity(1);
+    }
+  }, [variants]);
 
-  const handleAddProduct = async () => {
-    if (!selectedProduct) return;
-
-    const price = calculateUnitPrice(selectedProduct, tempUnit);
-    const qty = Number(tempQuantity);
-    const originalQty = Number(selectedProduct.quantity || 0);
-    const conversion = Number(selectedProduct.unitConversion || 1);
-    const soldInBoxes = tempUnit === "شريط" ? qty / conversion : qty;
-    const remaining = Math.max(0, originalQty - soldInBoxes);
-
-    const newItem = {
-      name: selectedProduct.name,
-      _id: selectedProduct._id,
-      price,
-      quantity: qty,
-      unit: tempUnit,
-      total: price * qty,
-      expiry: tempExpiry ? new Date(tempExpiry).toISOString() : null,
-      unitOptions: selectedProduct.unitOptions || [selectedProduct.unit],
-      fullProduct: selectedProduct,
-      remaining,
-    };
-
-    setItems((prev) => {
-      const next = [...prev, newItem];
-      setTotal(next.reduce((sum, i) => sum + i.total, 0));
-      return next;
-    });
-
-    setProducts((prev) =>
-      prev.map((p) => {
-        if (
-          p._id === selectedProduct._id &&
-          p.expiryDate === selectedProduct.expiryDate &&
-          p.unit === selectedProduct.unit
-        ) {
-          const conversion = Number(p.unitConversion || 1);
-          const soldInBoxes = tempUnit === "شريط" ? qty / conversion : qty;
-          const newQty = Math.max(0, p.quantity - soldInBoxes);
-          return { ...p, quantity: newQty };
-        }
-        return p;
-      })
-    );
-
-    setSelectedProduct(null);
-    setTempQuantity(1);
-    setTempUnit("علبة");
-    setTempExpiry("");
-    setShowSearch(false);
-    setVariants([]);
-  };
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, flexGrow: 1, overflow: "unset" }}>
-      <BarcodeScanner
-        onScan={(scanned) => {
-          console.log(`scanned is ${scanned}`);
-          const matchingVariants = products.filter(
-            (p) => p.barcode?.toString() === scanned
-          );
-          if (matchingVariants.length === 0) {
-            setBarcodeNotFound(scanned);
-            return;
-          }
+    <Container maxWidth="lg" sx={{ mt: 4, mb: 8, flexGrow: 1, overflow: "unset" }}>
+      <BarcodeScanner onScan={handleScan} />
 
-          const earliest = [...matchingVariants].sort((a, b) => {
-            const dateA = a.expiryDate
-              ? new Date(a.expiryDate)
-              : new Date(8640000000000000);
-            const dateB = b.expiryDate
-              ? new Date(b.expiryDate)
-              : new Date(8640000000000000);
-            return dateA - dateB;
-          })[0];
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: 4, mt: 4 }}>
+        <Box>
+          <ProductsTable
+            items={items}
+            setItems={setItems}
+            setShowSearch={setShowSearch}
+            setTotal={setTotal}
+            onDelete={handleDeleteItem}
+          />
+        </Box>
 
-          const tempUnit = earliest.unitOptions?.[0] || earliest.unit || "علبة";
-          const tempQuantity = 1;
-          const price =
-            tempUnit !== earliest.unit && earliest.unitConversion > 0
-              ? earliest.price / earliest.unitConversion
-              : earliest.price;
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <Box className="glass-card" sx={{ p: 4, textAlign: 'center', bgcolor: 'var(--glass-bg)' }}>
+            <Typography variant="h6" sx={{ color: 'var(--primary)', mb: 1, fontWeight: 600 }}>
+              💰 الإجمالي النهائي
+            </Typography>
+            <Typography variant="h3" sx={{ fontWeight: 800, color: 'var(--secondary)', mb: 3 }}>
+              {total.toFixed(2)} <small style={{ fontSize: '1.2rem' }}>جنيه</small>
+            </Typography>
 
-          const qty = Number(tempQuantity);
-          const originalQty = Number(earliest.quantity || 0);
-          const conversion = Number(earliest.unitConversion || 1);
-          const soldInBoxes = tempUnit === "شريط" ? qty / conversion : qty;
-          const remaining = Math.max(0, originalQty - soldInBoxes);
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Button
+                variant="contained"
+                disabled={items.length === 0}
+                fullWidth
+                sx={{
+                  py: 2,
+                  fontSize: "1.2rem",
+                  borderRadius: "12px",
+                  fontWeight: 700,
+                  bgcolor: 'var(--primary)',
+                  boxShadow: '0 4px 14px 0 rgba(0,137,123,0.39)',
+                  transition: "0.3s",
+                  "&:hover": { bgcolor: "var(--primary-hover)", transform: "translateY(-2px)" },
+                }}
+                onClick={() => handleCheckoutClick(false)}
+              >
+                💵 دفع كاش
+              </Button>
 
-          const newItem = {
-            name: earliest.name,
-            _id: earliest._id,
-            price,
-            quantity: qty,
-            unit: tempUnit,
-            total: price * qty,
-            expiry: earliest.expiryDate
-              ? new Date(earliest.expiryDate).toISOString()
-              : null,
-            unitOptions: earliest.unitOptions || [earliest.unit],
-            fullProduct: earliest,
-            remaining,
-          };
+              <Button
+                variant="contained"
+                disabled={items.length === 0}
+                fullWidth
+                sx={{
+                  py: 2,
+                  fontSize: "1.2rem",
+                  borderRadius: "12px",
+                  fontWeight: 700,
+                  bgcolor: '#673ab7', // Deep Purple for Sadaqah
+                  boxShadow: '0 4px 14px 0 rgba(103,58,183,0.39)',
+                  transition: "0.3s",
+                  "&:hover": { bgcolor: "#5e35b1", transform: "translateY(-2px)" },
+                }}
+                onClick={() => handleCheckoutClick(true)}
+              >
+                💜 تبرع / صدقة
+              </Button>
 
-          setItems((prev) => {
-            const next = [...prev, newItem];
-            setTotal(next.reduce((sum, i) => sum + i.total, 0));
-            return next;
-          });
-        }}
-      />
+              <Button
+                variant="outlined"
+                color="warning"
+                disabled={items.length === 0}
+                fullWidth
+                sx={{
+                  py: 2,
+                  fontSize: "1.1rem",
+                  borderRadius: "12px",
+                  fontWeight: 600,
+                  borderWidth: '2px',
+                  "&:hover": { borderWidth: '2px', transform: "translateY(-2px)" },
+                }}
+                onClick={() => setShowDebt(true)}
+              >
+                ➕ إضافة دين
+              </Button>
 
-      <Box display="flex" justifyContent="center" gap={4} mt={4} flexWrap="wrap">
-        <Button
-          variant="contained"
-          color="success"
-          disabled={items.length === 0}
-          sx={{
-            px: 6,
-            py: 1.8,
-            fontSize: "1.2rem",
-            borderRadius: "16px",
-            boxShadow: 3,
-            transition: "0.3s",
-            "&:hover": { bgcolor: "green", transform: "scale(1.05)" },
-          }}
-         onClick={async () => {
-  try {
-    const response = await axios.post(
-      "/api/checkout",
-      { items },
-      {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
-        validateStatus: () => true, // ✅ prevent axios from throwing on non-2xx
-      }
-    );
-
-    if (response.status !== 201) {
-      setCheckoutError(
-        response.data?.error ||
-        response.data?.message ||
-        `فشل الدفع (رمز الحالة: ${response.status}) ❌`
-      );
-      return;
-    }
-
-    handleReset();
-  } catch (error) {
-    console.error("Checkout error:", error);
-
-    const message =
-      error.response?.data?.error ||
-      error.response?.data?.message ||
-      error.message ||
-      "حدث خطأ أثناء الدفع ❌";
-
-    setCheckoutError(message);
-  }
-}}
-
-        >
-          💵 دفع
-        </Button>
-
-        <Button
-          variant="outlined"
-          color="warning"
-          disabled={items.length === 0}
-          sx={{
-            px: 6,
-            py: 1.8,
-            fontSize: "1.2rem",
-            borderRadius: "16px",
-            boxShadow: 3,
-            transition: "0.3s",
-            "&:hover": { bgcolor: "#f9d976", transform: "scale(1.05)" },
-          }}
-          onClick={() => setShowDebt(true)}
-        >
-          ➕ إضافة دين
-        </Button>
+              <Button
+                variant="text"
+                color="error"
+                disabled={items.length === 0}
+                onClick={clearCart}
+                sx={{ mt: 1, fontWeight: 600 }}
+              >
+                🗑️ مسح السلة
+              </Button>
+            </Box>
+          </Box>
+        </Box>
       </Box>
 
       <DebtModal
@@ -320,144 +372,71 @@ const CheckoutPage = () => {
         total={total}
         showDebt={showDebt}
         setShowDebt={setShowDebt}
-        handleReset={handleReset}
-      />
-
-      <Typography variant="h6" sx={{ mb: 2 }}>
-        الإجمالي: {total.toFixed(2)} جنيه
-      </Typography>
-
-      <ProductsTable
-        items={items}
-        setItems={setItems}
-        setShowSearch={setShowSearch}
-        setTotal={setTotal}
-        resetTrigger={resetTrigger}
-        onDelete={(index) => {
-          setItems((prevItems) => {
-            const newItems = [...prevItems];
-            const removedItem = newItems.splice(index, 1)[0];
-            setTotal(newItems.reduce((sum, i) => sum + i.total, 0));
-
-            if (removedItem) {
-              const { _id, expiry, unit, fullProduct, quantity } = removedItem;
-              const unitConversion = Number(fullProduct.unitConversion || 1);
-              const productBaseUnit = fullProduct.unit;
-
-              setProducts((prevProducts) =>
-                prevProducts.map((p) => {
-                  const isSameProduct =
-                    p._id === _id &&
-                    p.expiryDate === expiry &&
-                    p.unit === productBaseUnit;
-
-                  if (!isSameProduct) return p;
-
-                  // Convert removed quantity to base unit if needed
-                  let restoredQty = unit === "شريط" && unit !== productBaseUnit
-                    ? quantity / unitConversion
-                    : quantity;
-
-                  const originalQty = Number(fullProduct.quantity || 0);
-                  const newQty = originalQty; // Restore to original value
-
-                  console.log(
-                    `🔁 Restoring quantity | Product: ${p.name} | Previous (current): ${p.quantity} | Returning: ${restoredQty} | Original: ${originalQty}`
-                  );
-
-                  return {
-                    ...p,
-                    quantity: newQty,
-                  };
-                })
-              );
-            }
-
-            return newItems;
-          });
+        onClose={() => setShowDebt(false)}
+        onSuccess={(order) => {
+          setSuccessMessage("تم الحفظ في الديون بنجاح ✅");
+          setShowSuccess(true);
+          clearCart();
         }}
-
+        handleReset={clearCart}
       />
 
-      <Dialog open={Boolean(barcodeNotFound)} onClose={() => setBarcodeNotFound(null)}>
-        <Paper
-          elevation={4}
-          sx={{
-            padding: 4,
-            borderRadius: 3,
-            textAlign: "center",
-            backgroundColor: "#fff0f0",
-            maxWidth: 400,
-            margin: "0 auto",
-          }}
-        >
-          <Typography variant="h5" fontWeight="bold" color="error">
-            الباركود غير موجود
-          </Typography>
-          <Typography sx={{ mt: 2 }} color="error" fontSize="1rem">
-            الباركود "<strong>{barcodeNotFound}</strong>" غير موجود في قاعدة البيانات ❌
-          </Typography>
-          <Box sx={{ mt: 4 }}>
-            <Button variant="contained" color="error" onClick={() => setBarcodeNotFound(null)}>
-              حسناً
-            </Button>
-          </Box>
-        </Paper>
-      </Dialog>
+      <CustomDialog
+        open={Boolean(barcodeNotFound)}
+        onClose={() => setBarcodeNotFound(null)}
+        title="الباركود غير موجود"
+        message={<span>الباركود "<strong>{barcodeNotFound}</strong>" غير موجود في قاعدة البيانات ❌</span>}
+        type="error"
+      />
 
+      <CustomDialog
+        open={showConfirm}
+        onClose={() => setShowConfirm(false)}
+        title="تأكيد عملية البيع"
+        message={`هل أنت متأكد من إتمام عملية البيع بقيمة ${total.toFixed(2)} ج.م؟`}
+        type="info"
+        onConfirm={() => {
+          setShowConfirm(false);
+          handleCheckout(isPendingSadaqah);
+        }}
+      />
 
-      <Dialog open={Boolean(checkoutError)} onClose={() => setCheckoutError(null)}>
-        <Paper
-          elevation={4}
-          sx={{
-            padding: 4,
-            borderRadius: 3,
-            textAlign: "center",
-            backgroundColor: "#fff0f0",
-            maxWidth: 400,
-            margin: "0 auto",
-          }}
-        >
-          <Typography variant="h5" fontWeight="bold" color="error">
-            خطأ في الدفع
-          </Typography>
-          <Typography sx={{ mt: 2 }} color="error" fontSize="1rem">
-            {checkoutError}
-          </Typography>
-          <Box sx={{ mt: 4 }}>
-            <Button
-              variant="contained"
-              color="error"
-              onClick={() => setCheckoutError(null)}
-            >
-              حسناً
-            </Button>
-          </Box>
-        </Paper>
-      </Dialog>
+      <CustomDialog
+        open={showError}
+        onClose={() => setShowError(false)}
+        title="خطأ"
+        message={errorMessage}
+        type="error"
+      />
 
-
-   <ProductSelectDialog
-  open={showSearch}
-  onClose={() => setShowSearch(false)}
-  products={products}
-  setProducts={setProducts}
-  searchResults={searchResults}
-  setSearchResults={setSearchResults}
-  selectedProduct={selectedProduct}
-  setSelectedProduct={setSelectedProduct}
-  tempSelections={tempSelections}
-  tempQuantity={tempQuantity}
-  setTempQuantity={setTempQuantity}
-  tempUnit={tempUnit}
-  setTempUnit={setTempUnit}
-  tempExpiry={tempExpiry}
-  setTempExpiry={setTempExpiry}
-  variants={variants}
-  setVariants={setVariants}
-  handleAddProduct={handleAddProduct}
-/>
-
+      <ProductSelectDialog
+        open={showSearch}
+        onClose={() => setShowSearch(false)}
+        products={products}
+        searchResults={searchResults}
+        setSearchResults={setSearchResults}
+        selectedProduct={selectedProduct}
+        setSelectedProduct={setSelectedProduct}
+        tempQuantity={tempQuantity}
+        setTempQuantity={setTempQuantity}
+        tempUnit={tempUnit}
+        setTempUnit={setTempUnit}
+        tempExpiry={tempExpiry}
+        setTempExpiry={setTempExpiry}
+        variants={variants}
+        setVariants={setVariants}
+        handleAddProduct={handleAddProduct}
+      />
+      <Snackbar
+        open={showSuccess}
+        autoHideDuration={3000}
+        onClose={() => setShowSuccess(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" variant="filled" sx={{ width: '100%', fontWeight: 700, borderRadius: '12px' }}>
+          {successMessage}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 };

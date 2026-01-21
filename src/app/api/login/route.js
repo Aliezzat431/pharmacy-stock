@@ -1,16 +1,14 @@
 import { NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
-import User from '@/app/models/user.model';
-import mongoose from 'mongoose';
+import { getDb } from '@/app/lib/db';
+import { getUserModel } from '@/app/lib/models/User';
 
 export async function POST(request) {
   try {
-    const { username, password } = await request.json();
+    const { username, password, pharmacyId } = await request.json();
 
-    // Connect to MongoDB if not already connected
-    if (mongoose.connection.readyState === 0) {
-      await mongoose.connect(process.env.MONGODB_URI);
-    }
+    const conn = await getDb(pharmacyId);
+    const User = getUserModel(conn);
 
     const user = await User.findOne({ username, password });
 
@@ -23,7 +21,7 @@ export async function POST(request) {
 
     const jwtSecret = process.env.JWT_SECRET;
     const token = jwt.sign(
-      { username: user.username, userId: user._id },
+      { username: user.username, userId: user._id.toString(), pharmacyId: pharmacyId || "1" },
       jwtSecret,
       { expiresIn: '7d' }
     );

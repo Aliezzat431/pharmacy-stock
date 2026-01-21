@@ -1,33 +1,62 @@
 import { NextResponse } from "next/server";
-import { connectDB } from "@/app/lib/connectDb";
-import companyModel from "@/app/models/company.model";
+import { getDb } from "@/app/lib/db";
+import { verifyToken } from "@/app/lib/verifyToken";
+import { getCompanyModel } from "@/app/lib/models/Company";
 
 // GET all companies
-export async function GET() {
-  await connectDB();
-  const companies = await companyModel.find().lean();
-  return NextResponse.json(companies);
+export async function GET(req) {
+  try {
+    const user = verifyToken(req.headers);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const conn = await getDb(user.pharmacyId);
+    const Company = getCompanyModel(conn);
+
+    const companies = await Company.find({}).sort({ name: 1 });
+    return NextResponse.json(companies);
+  } catch (error) {
+    console.error("GET companies error:", error);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
 }
 
 export async function POST(req) {
-  const token = req.headers.get("authorization")?.replace("Bearer ", "");
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const user = verifyToken(req.headers);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await req.json();
-  await connectDB();
-  const newCompany = await companyModel.create({ name: body.name });
-  return NextResponse.json(newCompany);
+    const conn = await getDb(user.pharmacyId);
+    const Company = getCompanyModel(conn);
+
+    const body = await req.json();
+    const newCompany = await Company.create({ name: body.name });
+
+    return NextResponse.json({ id: newCompany._id, name: newCompany.name });
+  } catch (error) {
+    console.error("POST companies error:", error);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
 }
 
 export async function PATCH(req) {
-  const token = req.headers.get("authorization")?.replace("Bearer ", "");
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const user = verifyToken(req.headers);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await req.json();
-  await connectDB();
-  const updatedCompany = await companyModel.findByIdAndUpdate(body.id, { name: body.name }, { new: true });
+    const body = await req.json();
+    const { id, name } = body;
+    if (!id || !name) return NextResponse.json({ error: "Missing id or name" }, { status: 400 });
 
-  if (!updatedCompany) return NextResponse.json({ error: "Not Found" }, { status: 404 });
+    const conn = await getDb(user.pharmacyId);
+    const Company = getCompanyModel(conn);
 
-  return NextResponse.json(updatedCompany);
+    const updatedCompany = await Company.findByIdAndUpdate(id, { name }, { new: true });
+
+    if (!updatedCompany) return NextResponse.json({ error: "Not Found" }, { status: 404 });
+
+    return NextResponse.json({ id: updatedCompany._id, name: updatedCompany.name });
+  } catch (error) {
+    console.error("PATCH companies error:", error);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
 }

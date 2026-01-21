@@ -1,35 +1,131 @@
-@import url('https://fonts.googleapis.com/css2?family=Amiri&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Amiri&family=Inter:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-  --font-sans: 'Amiri', serif !important;
-  --font-mono: var(--font-geist-mono);
+  --background: #f4f7f6;
+  --foreground: #1a202c;
+  --primary: #00897b;
+  --primary-hover: #00695c;
+  --secondary: #4caf50;
+  --accent: #26a69a;
+  --error: #e53935;
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.3);
+  --font-sans: 'Inter', 'Amiri', serif !important;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-secondary: var(--secondary);
   --font-sans: var(--font-sans);
-  --font-mono: var(--font-mono);
-  
 }
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-h5 {
-  font-weight: bold;
-}
-
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
+  transition: background-color 0.3s ease, color 0.3s ease;
   font-family: var(--font-sans);
+  margin: 0;
+}
+
+.dark {
+  --background: #0f172a;
+  --foreground: #f1f5f9;
+  --glass-bg: rgba(15, 23, 42, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --primary: #26a69a;
+  --secondary: #66bb6a;
+}
+
+/* Global MUI Dark Overrides */
+.dark .MuiTypography-root {
+  color: var(--foreground) !important;
+}
+
+.dark .MuiPaper-root {
+  background-color: var(--glass-bg) !important;
+  color: var(--foreground) !important;
+  border-color: var(--glass-border) !important;
+}
+
+.dark .MuiTableCell-root {
+  color: var(--foreground) !important;
+  border-bottom: 1px solid var(--glass-border) !important;
+}
+
+.dark .MuiInputBase-input {
+  color: var(--foreground) !important;
+}
+
+.dark .MuiInputLabel-root {
+  color: var(--foreground) !important;
+  opacity: 0.8;
+}
+
+.dark .MuiOutlinedInput-notchedOutline {
+  border-color: var(--glass-border) !important;
+}
+
+.dark .MuiSvgIcon-root {
+  color: var(--foreground) !important;
+  opacity: 0.9;
+}
+
+.dark .MuiDivider-root {
+  border-color: var(--glass-border) !important;
+}
+
+
+.glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
+  border-radius: 16px;
+}
+
+.modern-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 8px;
+}
+
+.modern-table tr {
+  transition: transform 0.2s;
+}
+
+.modern-table tr:hover {
+  transform: translateY(-2px);
+}
+
+.modern-table th {
+  padding: 12px;
+  text-align: right;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+}
+
+.modern-table td {
+  padding: 16px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(4px);
+  border-top: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.modern-table td:first-child {
+  border-left: 1px solid var(--glass-border);
+  border-top-left-radius: 12px;
+  border-bottom-left-radius: 12px;
+}
+
+.modern-table td:last-child {
+  border-right: 1px solid var(--glass-border);
+  border-top-right-radius: 12px;
+  border-bottom-right-radius: 12px;
 }

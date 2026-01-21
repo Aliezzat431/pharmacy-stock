@@ -16,9 +16,12 @@ import {
   Paper,
   Select,
   MenuItem,
+  Tooltip,
 } from "@mui/material";
 import CreateProductForm from "../components/createProduct";
 import BarcodeScanner from "../components/BarcodeScanner";
+import { typesWithUnits } from "../lib/unitOptions";
+import { useToast } from "../components/ToastContext";
 
 const Stock = () => {
   const [products, setProducts] = useState([]);
@@ -27,6 +30,8 @@ const Stock = () => {
   const [openModal, setOpenModal] = useState(false);
   const [focusedProductId, setFocusedProductId] = useState(null);
   const [selectedVariants, setSelectedVariants] = useState({});
+  const [deleteId, setDeleteId] = useState(null);
+  const { showToast } = useToast();
 
   useEffect(() => {
     fetchProducts(searchTerm, searchMode);
@@ -100,222 +105,293 @@ const Stock = () => {
     );
   };
 
-const handleSave = async (product) => {
-  try {
-    const token = localStorage.getItem("token");
-    const conversion = product.unitConversion || 1;
-
-    const quantityToSend =
-      product.unit === "شريط"
-        ? parseFloat(product.quantity) / conversion
-        : parseFloat(product.quantity);
-
-    // Update barcode if it exists
-    if (product.barcode) {
-      await axios.patch(
-        "/api/products",
-        {
-          id: product._id,
-          mode: "barcode",
-          barcode: product.barcode,
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-    }
-
-    // Update quantity
-    await axios.patch(
-      "/api/products",
-      {
-        id: product._id,
-        mode: "quantity",
-        quantity: quantityToSend,
-      },
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      }
+  const handleUnitConversionChange = (id, newVal) => {
+    setProducts((prev) =>
+      prev.map((product) =>
+        product._id === id ? { ...product, unitConversion: newVal } : product
+      )
     );
+  };
 
-    // Update expiry date
-    if (product.expiryDate) {
+  const handleSave = async (product) => {
+    try {
+      const token = localStorage.getItem("token");
+      const conversion = product.unitConversion || 1;
+
+      const quantityToSend =
+        product.unit === "شريط"
+          ? parseFloat(product.quantity) / conversion
+          : parseFloat(product.quantity);
+
+      // Update barcode if it exists
+      if (product.barcode) {
+        await axios.patch(
+          "/api/products",
+          {
+            id: product._id,
+            mode: "barcode",
+            barcode: product.barcode,
+          },
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+      }
+
+      // Update quantity
       await axios.patch(
         "/api/products",
         {
           id: product._id,
-          mode: "expiryDate",
-          expiryDate: product.expiryDate,
+          mode: "quantity",
+          quantity: quantityToSend,
         },
         {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
+
+      // Update expiry date
+      if (product.expiryDate) {
+        await axios.patch(
+          "/api/products",
+          {
+            id: product._id,
+            mode: "expiryDate",
+            expiryDate: product.expiryDate,
+          },
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+      }
+
+
+
+      // Update unit conversion
+      if (product.unitConversion) {
+        await axios.patch(
+          "/api/products",
+          {
+            id: product._id,
+            mode: "unitConversion",
+            unitConversion: product.unitConversion,
+          },
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+      }
+
+      if (product.unitConversion) {
+        await axios.patch(
+          "/api/products",
+          {
+            id: product._id,
+            mode: "unitConversion",
+            unitConversion: product.unitConversion,
+          },
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+      }
+
+      showToast("✅ تم الحفظ بنجاح", "success");
+      fetchProducts(searchTerm, searchMode);
+    } catch (error) {
+      console.error("Error saving product:", error);
+      showToast("❌ فشل الحفظ", "error");
     }
+  };
 
-    alert("✅ تم الحفظ");
-    fetchProducts(searchTerm, searchMode);
-  } catch (error) {
-    console.error("Error saving product:", error);
-    alert("❌ فشل الحفظ");
-  }
-};
-
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`/api/products?id=${deleteId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      showToast("✅ تم الحذف بنجاح", "success");
+      setProducts(prev => prev.filter(p => p._id !== deleteId));
+      setDeleteId(null);
+    } catch (err) {
+      console.error("Error deleting product", err);
+      showToast("❌ حدث خطأ أثناء الحذف", "error");
+    }
+  };
 
   return (
-    <Box p={4} width="100%" flexGrow={1}>
+    <Box sx={{ p: { xs: 2, md: 4 }, width: "100%", minHeight: '100vh', display: 'flex', flexDirection: 'column', gap: 3 }}>
       {/* Header */}
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-        <Typography variant="h5">📦 إدارة المخزون</Typography>
-        <Button variant="contained" onClick={() => setOpenModal(true)}>
-          ➕ منتج جديد
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+        <Typography variant="h4" sx={{ fontWeight: 800, color: 'var(--primary)', letterSpacing: '-0.5px' }}>
+          📦 إدارة المخزون
+        </Typography>
+        <Button
+          variant="contained"
+          onClick={() => setOpenModal(true)}
+          startIcon={<span>➕</span>}
+          sx={{
+            px: 4, py: 1.5, borderRadius: '12px', fontWeight: 700,
+            bgcolor: 'var(--primary)',
+            boxShadow: '0 4px 14px 0 rgba(0,137,123,0.39)',
+            "&:hover": { bgcolor: "var(--primary-hover)", transform: "translateY(-2px)" },
+            transition: '0.3s'
+          }}
+        >
+          منتج جديد
         </Button>
       </Box>
 
       {/* Search & Filter */}
-      <Box display="flex" alignItems="center" gap={2} mb={3}>
+      <Box className="glass-card" sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2, bgcolor: 'var(--glass-bg)' }}>
         <TextField
           fullWidth
-          label="🔍 بحث باسم المنتج أو الباركود"
+          placeholder="🔍 بحث باسم المنتج أو الباركود..."
+          variant="outlined"
           value={searchTerm}
           onChange={handleSearchChange}
+          sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
         />
-        <Select value={searchMode} onChange={handleModeChange} size="small">
+        <Select
+          value={searchMode}
+          onChange={handleModeChange}
+          size="small"
+          sx={{ minWidth: 150, borderRadius: '12px' }}
+        >
           <MenuItem value="all">عرض الكل</MenuItem>
           <MenuItem value="shortcomings">النواقص فقط</MenuItem>
         </Select>
       </Box>
 
       {/* Products Table */}
-      <TableContainer component={Paper}>
-        <Table size="small">
-          <TableHead sx={{ backgroundColor: "#f5f5f5" }}>
+      <TableContainer className="glass-card" sx={{ flexGrow: 1, overflow: 'auto', border: '1px solid var(--glass-border)', bgcolor: 'var(--glass-bg)' }}>
+        <Table stickyHeader className="modern-table">
+          <TableHead>
             <TableRow>
-              <TableCell align="center">#</TableCell>
-              <TableCell align="right">الاسم</TableCell>
-              <TableCell align="right">النوع</TableCell>
-              <TableCell align="right">الوحدة</TableCell>
-              <TableCell align="right">الكمية</TableCell>
-              <TableCell align="right">الباركود</TableCell>
-              <TableCell align="right">التاريخ</TableCell>
-              <TableCell align="right">تحديث</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 800 }}>#</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 800 }}>الاسم</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 800 }}>النوع</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 800 }}>الوحدة</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 800 }}>التحويل</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 800 }}>الكمية</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 800 }}>الباركود</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 800 }}>التفاصيل</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 800 }}>تاريخ الانتهاء</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 800 }}>الإجراء</TableCell>
             </TableRow>
           </TableHead>
+
           <TableBody>
-            {products.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} align="center">
-                  لا توجد نتائج
+            {products.map((product, index) => (
+              <TableRow key={product._id} hover>
+                <TableCell align="center" sx={{ fontWeight: 700, color: 'var(--primary)' }}>
+                  {index + 1}
+                </TableCell>
+                <TableCell align="right" sx={{ fontWeight: 600 }}>{product.name}</TableCell>
+                <TableCell align="right">{product.type}</TableCell>
+                <TableCell align="right">
+                  <Select
+                    value={product.unit}
+                    onChange={(e) => handleUnitChange(product._id, e.target.value)}
+                    size="small"
+                    sx={{ minWidth: 100, borderRadius: '8px' }}
+                  >
+                    {(product.unitOptions && product.unitOptions.length > 0
+                      ? product.unitOptions
+                      : (typesWithUnits[product.type] || [])
+                    ).map((u) => (
+                      <MenuItem key={u} value={u}>{u}</MenuItem>
+                    ))}
+                  </Select>
+                </TableCell>
+                <TableCell align="right">
+                  <TextField
+                    value={product.unitConversion || ""}
+                    onChange={(e) => handleUnitConversionChange(product._id, e.target.value)}
+                    type="number"
+                    size="small"
+                    variant="standard"
+                    sx={{ width: 60, '& input': { textAlign: 'center' } }}
+                  />
+                </TableCell>
+                <TableCell align="right">
+                  <TextField
+                    value={String(Number(product.quantity))}
+                    onChange={(e) => handleQuantityChange(product._id, e.target.value)}
+                    type="number"
+                    size="small"
+                    variant="standard"
+                    sx={{ width: 80, '& input': { textAlign: 'right', fontWeight: 700, color: 'var(--secondary)' } }}
+                  />
+                </TableCell>
+                <TableCell align="right">
+                  <TextField
+                    value={product.barcode || ""}
+                    onFocus={() => setFocusedProductId(product._id)}
+                    onBlur={() => setFocusedProductId(null)}
+                    onChange={(e) => handleBarcodeChange(product._id, e.target.value)}
+                    size="small"
+                    variant="standard"
+                    sx={{ width: 120 }}
+                  />
+                </TableCell>
+                <TableCell align="right">
+                  <Tooltip title={product.details || "لا توجد تفاصيل"}>
+                    <Typography variant="body2" sx={{ width: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'help' }}>
+                      {product.details || "-"}
+                    </Typography>
+                  </Tooltip>
+                </TableCell>
+                <TableCell align="right">
+                  <TextField
+                    type="date"
+                    value={product.expiryDate ? new Date(product.expiryDate).toISOString().split("T")[0] : ""}
+                    onChange={(e) => {
+                      const updated = products.map((p) =>
+                        p._id === product._id ? { ...p, expiryDate: e.target.value } : p
+                      );
+                      setProducts(updated);
+                    }}
+                    size="small"
+                    variant="standard"
+                  />
+                </TableCell>
+                <TableCell align="center">
+                  <Button
+                    variant="contained"
+                    size="small"
+                    onClick={() => handleSave(product)}
+                    sx={{
+                      borderRadius: '8px',
+                      bgcolor: 'var(--primary)',
+                      mr: 1,
+                      '&:hover': { bgcolor: 'var(--primary-hover)' }
+                    }}
+                  >
+                    حفظ
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    color="error"
+                    onClick={() => setDeleteId(product._id)}
+                    sx={{ borderRadius: '8px' }}
+                  >
+                    حذف
+                  </Button>
                 </TableCell>
               </TableRow>
-            ) : (
-              Object.entries(
-                products.reduce((acc, product) => {
-                  acc[product.name] = acc[product.name] || [];
-                  acc[product.name].push(product);
-                  return acc;
-                }, {})
-              ).map(([name, variants], index) => {
-                const selectedId = selectedVariants[name] || variants[0]._id;
-                const selectedProduct = variants.find((v) => v._id === selectedId);
-
-                return (
-                  <TableRow key={selectedId}>
-                    <TableCell align="center">{index + 1}</TableCell>
-                    <TableCell align="right">{name}</TableCell>
-                    <TableCell align="right">{selectedProduct.type}</TableCell>
-                    <TableCell align="right">
-                      <Select
-                        value={selectedProduct.unit}
-                        onChange={(e) =>
-                          handleUnitChange(selectedProduct._id, e.target.value)
-                        }
-                        size="small"
-                      >
-                        {(selectedProduct.unitOptions || []).map((u) => (
-                          <MenuItem key={u} value={u}>
-                            {u}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </TableCell>
-                    <TableCell align="right">
-                      <TextField
-                        value={String(Number(selectedProduct.quantity))}
-                        onChange={(e) =>
-                          handleQuantityChange(selectedProduct._id, e.target.value)
-                        }
-                        type="number"
-                        size="small"
-                      />
-                    </TableCell>
-                    <TableCell align="right">
-                      <TextField
-                        value={selectedProduct.barcode || ""}
-                        onFocus={() => setFocusedProductId(selectedProduct._id)}
-                        onBlur={() => setFocusedProductId(null)}
-                        onChange={(e) =>
-                          handleBarcodeChange(selectedProduct._id, e.target.value)
-                        }
-                        size="small"
-                      />
-                    </TableCell>
-<TableCell align="right">
-  {(() => {
-    const selectedVariant = variants.find((v) => v._id === selectedId);
-
-    const formatDate = (dateStr) => {
-      const date = new Date(dateStr);
-      return date.toISOString().split("T")[0]; // YYYY-MM-DD
-    };
-
-    const handleExpiryDateChange = (e) => {
-      const inputDate = new Date(e.target.value).setHours(0, 0, 0, 0);
-      const matchedVariant = variants.find((v) => {
-        const variantDate = new Date(v.expiryDate).setHours(0, 0, 0, 0);
-        return variantDate === inputDate;
-      });
-
-      if (matchedVariant) {
-        handleVariantChange(name, matchedVariant._id);
-      } else {
-        // Update selected product expiry if no variant matched
-        const updated = products.map((p) =>
-          p._id === selectedProduct._id
-            ? { ...p, expiryDate: e.target.value }
-            : p
-        );
-        setProducts(updated);
-      }
-    };
-
-    return (
-      <TextField
-        type="date"
-        value={selectedVariant ? formatDate(selectedVariant.expiryDate) : ""}
-        onChange={handleExpiryDateChange}
-        size="small"
-        fullWidth
-      />
-    );
-  })()}
-</TableCell>
-
-
-
-
-                    <TableCell align="right">
-                      <Button
-                        variant="outlined"
-                        color="primary"
-                        onClick={() => handleSave(selectedProduct)}
-                      >
-                        حفظ
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
+            ))}
+            {products.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={8} align="center" sx={{ py: 10 }}>
+                  <Typography variant="h6" color="text.secondary">
+                    لا توجد منتجات مطابقة للبحث أو المخزون فارغ.
+                  </Typography>
+                </TableCell>
+              </TableRow>
             )}
           </TableBody>
         </Table>
@@ -340,6 +416,23 @@ const handleSave = async (product) => {
           }
         }}
       />
+
+      {/* Delete Confirmation Dialog */}
+      {deleteId && (
+        <Box sx={{
+          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+          bgcolor: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}>
+          <Paper className="glass-card" sx={{ p: 4, textAlign: 'center', maxWidth: 400 }}>
+            <Typography variant="h6" gutterBottom>هل أنت متأكد من حذف هذا المنتج؟</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>لا يمكن التراجع عن هذا الإجراء.</Typography>
+            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+              <Button variant="contained" color="error" onClick={handleDelete}>حذف نهائي</Button>
+              <Button variant="outlined" onClick={() => setDeleteId(null)}>إلغاء</Button>
+            </Box>
+          </Paper>
+        </Box>
+      )}
     </Box>
   );
 };

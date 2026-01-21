@@ -1,38 +1,36 @@
-import { connectDB } from "@/app/lib/connectDb";
-import Product from "@/app/models/product.model";
+import { getDb } from "@/app/lib/db";
 import { NextResponse } from "next/server";
 import { verifyToken } from "@/app/lib/verifyToken";
-import winningModel from "@/app/models/winning.model";
 import { typesWithUnits } from "@/app/lib/unitOptions";
+import { getSetting } from "@/app/lib/getSetting";
+import { getProductModel } from "@/app/lib/models/Product";
+import { getWinningModel } from "@/app/lib/models/Winning";
+import mongoose from "mongoose";
 
 export async function GET(request) {
   try {
     const user = verifyToken(request.headers);
-    if (!user) {
-      return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
-    }
+    if (!user) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
 
-    await connectDB();
+    const conn = await getDb(user.pharmacyId);
+    const Product = getProductModel(conn);
 
-    const products = await Product.find({});
+    const products = await Product.find({}).lean();
 
-    const treatments = products.map((p) => {
-      const obj = p.toObject();
-      return {
-        _id: obj._id,
-        name: obj.name,
-        price: obj.price,
-        unit: obj.unit,
-        quantity: obj.quantity,
-        type: obj.type,
-        isShortcoming: obj.isShortcoming,
-        unitConversion: obj.unitConversion,
-        isBaseUnit: obj.isBaseUnit,
-        barcode: obj.barcode,
-        expiryDate: obj.expiryDate,
-        unitOptions: getUnitsForType(obj.type),
-      };
-    });
+    const treatments = products.map((p) => ({
+      _id: p._id.toString(),
+      name: p.name,
+      price: p.price,
+      unit: p.unit,
+      quantity: p.quantity,
+      type: p.type,
+      isShortcoming: !!p.isShortcoming,
+      unitConversion: p.unitConversion,
+      isBaseUnit: !!p.isBaseUnit,
+      barcode: p.barcode,
+      expiryDate: p.expiryDate,
+      unitOptions: typesWithUnits[p.type] || ["علبة"],
+    }));
 
     // Add "agel" (non-product item)
     treatments.push({
@@ -47,7 +45,7 @@ export async function GET(request) {
       isBaseUnit: true,
       barcode: "",
       expiryDate: null,
-      unitOptions: [{ value: "جنيه", label: "جنيه" }],
+      unitOptions: ["جنيه"],
     });
 
     return NextResponse.json({ treatments }, { status: 200 });
@@ -60,11 +58,12 @@ export async function GET(request) {
 export async function POST(req) {
   try {
     const user = verifyToken(req.headers);
-    if (!user) {
-      return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
-    }
+    if (!user) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
 
-    await connectDB();
+    const conn = await getDb(user.pharmacyId);
+    const Product = getProductModel(conn);
+    const Winning = getWinningModel(conn);
+
     const body = await req.json();
 
     if (!body || !Array.isArray(body.items)) {
@@ -76,6 +75,7 @@ export async function POST(req) {
       return NextResponse.json({ error: "يجب إدخال منتجات" }, { status: 400 });
     }
 
+    // Check for duplicate product IDs in the request
     const ids = items.map(i => i._id);
     const duplicates = ids.filter((id, idx) => ids.indexOf(id) !== idx);
     if (duplicates.length > 0) {
@@ -84,122 +84,98 @@ export async function POST(req) {
 
     const now = new Date();
     const expiredItems = [];
-    let totalCost = 0;
+    let totalSaleAmount = 0;
     const reasons = [];
 
-    for (const item of items) {
-      const { _id, name, unit, quantity } = item;
+    const session = await conn.startSession();
+    session.startTransaction();
 
-      if (!_id || !name || !unit || quantity == null) {
-        return NextResponse.json({ error: `البيانات ناقصة في أحد العناصر` }, { status: 400 });
-      }
+    try {
+      for (const item of items) {
+        const { _id, name, unit, quantity } = item;
 
-      if (typeof quantity !== "number" || isNaN(quantity) || quantity <= 0) {
-        return NextResponse.json({ error: `الكمية غير صالحة للمنتج "${name}"` }, { status: 400 });
-      }
-
-      // Handle "agel" deposit case
-      if (_id === "agel") {
-        const depositAmount = parseFloat(quantity);
-        if (isNaN(depositAmount) || depositAmount <= 0) {
-          return NextResponse.json({ error: "قيمة المبلغ غير صالحة" }, { status: 400 });
+        if (!_id || !name || !unit || quantity == null) {
+          throw new Error(`البيانات ناقصة في أحد العناصر`);
         }
-        totalCost += depositAmount;
-        reasons.push(`إيداع مبلغ ${depositAmount} جنيه`);
-        continue;
-      }
 
-      const product = await Product.findOne({ _id });
-
-      if (!product) {
-        return NextResponse.json({ error: `المنتج "${name}" غير موجود` }, { status: 404 });
-      }
-
-      // Validate product data before sale
-      if (product.quantity == null || isNaN(product.quantity) || product.quantity < 0) {
-        return NextResponse.json({ error: `كمية المنتج "${product.name}" غير صالحة في قاعدة البيانات` }, { status: 400 });
-      }
-
-      if (product.purchasePrice == null || isNaN(product.purchasePrice) || product.purchasePrice <= 0) {
-        return NextResponse.json({ error: `المنتج "${product.name}" لا يحتوي على سعر شراء صالح` }, { status: 400 });
-      }
-
-      if (product.price == null || isNaN(product.price) || product.price < 0) {
-        return NextResponse.json({ error: `المنتج "${product.name}" لا يحتوي على سعر بيع صالح` }, { status: 400 });
-      }
-
-      // Check expiry
-      if (product.expiryDate && !isNaN(new Date(product.expiryDate)) && new Date(product.expiryDate) < now) {
-        expiredItems.push(name);
-        continue;
-      }
-
-      // Handle unit conversion
-      let quantityToDecrement = quantity;
-      const isDifferentUnit = unit !== product.unit;
-      const conversion = typeof product.unitConversion === "number" ? product.unitConversion : 1;
-
-      if (isDifferentUnit) {
-        if (!conversion || isNaN(conversion) || conversion <= 0) {
-          return NextResponse.json({ error: `لا يمكن تحويل الوحدة "${unit}" للمنتج "${name}"` }, { status: 400 });
+        if (typeof quantity !== "number" || isNaN(quantity) || quantity <= 0) {
+          throw new Error(`الكمية غير صالحة للمنتج "${name}"`);
         }
-        quantityToDecrement = quantity / conversion;
+
+        // Handle "agel" deposit case
+        if (_id === "agel") {
+          totalSaleAmount += quantity;
+          reasons.push(`إيداع مبلغ ${quantity} جنيه`);
+          continue;
+        }
+
+        // Find product by id
+        const product = await Product.findById(_id).session(session);
+
+        if (!product) {
+          throw new Error(`المنتج "${name}" غير موجود`);
+        }
+
+        // Validate stock
+        if (product.expiryDate && new Date(product.expiryDate) < now) {
+          expiredItems.push(name);
+          continue;
+        }
+
+        let quantityToDecrement = quantity;
+        const isDifferentUnit = unit !== product.unit;
+        const conversion = product.unitConversion || 1;
+
+        if (isDifferentUnit) {
+          quantityToDecrement = quantity / conversion;
+        }
+
+        if (quantityToDecrement > product.quantity) {
+          throw new Error(`الكمية المطلوبة (${quantityToDecrement}) أكبر من المتوفرة (${product.quantity}) للمنتج "${product.name}"`);
+        }
+
+        const saleAmount = quantityToDecrement * (product.price || 0);
+        totalSaleAmount += saleAmount;
+
+        product.quantity -= quantityToDecrement;
+        const threshold = await getSetting(conn, 'lowStockThreshold', 5);
+        product.isShortcoming = product.quantity < threshold;
+
+        await product.save({ session });
+
+        reasons.push(`${quantity} ${unit} ${product.name}`);
       }
 
-      // Prevent selling more than available stock
-      if (quantityToDecrement > product.quantity) {
-        return NextResponse.json({
-          error: `الكمية المطلوبة (${quantityToDecrement}) أكبر من المتوفرة (${product.quantity}) للمنتج "${product.name}"`,
-        }, { status: 400 });
+      if (expiredItems.length > 0) {
+        throw new Error(`بعض المنتجات منتهية الصلاحية: ${expiredItems.join(', ')}`);
       }
 
-      const cost = quantityToDecrement * (product.price || 0);
-      totalCost += cost;
+      const isSadaqah = body.isSadaqah === true;
+      if (totalSaleAmount > 0 || isSadaqah) {
+        await Winning.create([{
+          amount: isSadaqah ? 0 : totalSaleAmount,
+          reason: (isSadaqah ? "صدقة: " : "") + reasons.join(" و "),
+          transactionType: 'in',
+          date: new Date()
+        }], { session });
+      }
 
-      let newQuantity = product.quantity - quantityToDecrement;
-      if (newQuantity < 0) newQuantity = 0;
+      await session.commitTransaction();
+      session.endSession();
 
-      const isShortcoming = newQuantity < 5;
-
-      await Product.updateOne(
-        { _id: product._id },
-        { quantity: newQuantity, isShortcoming }
-      );
-
-      reasons.push(`${quantity} ${unit} ${product.name}`);
-    }
-
-    if (expiredItems.length > 0) {
       return NextResponse.json({
-        success: false,
-        message: "بعض المنتجات منتهية الصلاحية",
-        expired: expiredItems,
-      }, { status: 400 });
-    }
+        success: true,
+        message: "تم حفظ الطلب وتحديث الكمية وتسجيل الدخل بنجاح",
+      }, { status: 201 });
 
-    if (totalCost > 0) {
-      await winningModel.create({
-        amount: totalCost,
-        reason: reasons.join(" و "),
-        transactionType: "in",
-        date: now,
-      });
+    } catch (innerError) {
+      await session.abortTransaction();
+      session.endSession();
+      return NextResponse.json({ error: innerError.message }, { status: 400 });
     }
-
-    return NextResponse.json({
-      success: true,
-      message: "تم حفظ الطلب وتحديث الكمية وتسجيل الدخل بنجاح",
-    }, { status: 201 });
 
   } catch (error) {
     console.error("POST /api/checkout error:", error);
     return NextResponse.json({ error: "حدث خطأ أثناء الحفظ" }, { status: 500 });
   }
-}
-
-
-
-
-function getUnitsForType(type) {
-  return typesWithUnits[type] || ["علبة"];
 }

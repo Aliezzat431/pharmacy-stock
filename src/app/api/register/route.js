@@ -1,27 +1,16 @@
 import { NextResponse } from 'next/server';
-import mongoose from 'mongoose';
-import User from '@/app/models/user.model';
-import settingsModel from '@/app/models/settings.model';
+import { getDb } from '@/app/lib/db';
 import jwt from 'jsonwebtoken';
+import { getUserModel } from '@/app/lib/models/User';
 
 export async function POST(request) {
   try {
-    const { username, password, paymentPortName } = await request.json();
-
+    const { username, password, pharmacyId } = await request.json();
     const adminKey = process.env.ADMIN_KEY;
 
-    // Connect to MongoDB if not already connected
-    if (mongoose.connection.readyState === 0) {
-      await mongoose.connect(process.env.MONGODB_URI);
-    }
-
-    // Get maxUsers from settings
-    let maxUsersSetting = await settingsModel.findOne({ key: 'maxUsers' });
-    let maxUsers = parseInt(maxUsersSetting?.value ?? 0);
-
-    console.log('maxUsers from DB:', maxUsers);
-
-console.log(adminKey,password);
+    // Connect to the specific pharmacy DB
+    const conn = await getDb(pharmacyId);
+    const User = getUserModel(conn);
 
     if (!adminKey || !password.includes(adminKey)) {
       return NextResponse.json(
@@ -33,19 +22,6 @@ console.log(adminKey,password);
       );
     }
 
-    // Check user limit
-    const userCount = await User.countDocuments();
-    if (maxUsers > 0 && userCount >= maxUsers) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: `User limit reached. Only ${maxUsers} users allowed.`,
-        },
-        { status: 403 }
-      );
-    }
-
-    // Check if username already exists
     const existingUser = await User.findOne({ username });
     if (existingUser) {
       return NextResponse.json(
@@ -54,14 +30,18 @@ console.log(adminKey,password);
       );
     }
 
-    // Create and save new user
-    const user = new User({ username, password, paymentPortName });
-    await user.save();
+    const newUser = await User.create({
+      username,
+      password,
+      pharmacyId: pharmacyId || "1"
+    });
+
+    const userId = newUser._id.toString();
 
     // Generate token
     const jwtSecret = process.env.JWT_SECRET;
     const token = jwt.sign(
-      { username: user.username, userId: user._id },
+      { username, userId, pharmacyId: pharmacyId || "1" },
       jwtSecret,
       { expiresIn: '7d' }
     );

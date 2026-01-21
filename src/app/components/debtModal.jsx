@@ -12,6 +12,7 @@ import {
   Snackbar,
   Alert,
 } from "@mui/material";
+import { Box } from '@mui/material';
 import CloseIcon from "@mui/icons-material/Close";
 import axios from "axios";
 
@@ -78,39 +79,49 @@ export default function DebtModal({ items, total, showDebt, setShowDebt, handleR
 
   return (
     <>
-      <Dialog open={showDebt} onClose={() => setShowDebt(false)} fullWidth maxWidth="sm">
-        <DialogTitle sx={{ position: "relative", pr: 5 }}>
-          تسجيل كدين
-          <IconButton
-            onClick={() => setShowDebt(false)}
-            sx={{ position: "absolute", right: 8, top: 8 }}
-          >
+      <Dialog
+        open={showDebt}
+        onClose={() => setShowDebt(false)}
+        fullWidth
+        maxWidth="sm"
+        PaperProps={{
+          className: "glass-card",
+          sx: { p: 1, bgcolor: 'var(--glass-bg)' }
+        }}
+      >
+        <DialogTitle component="div" sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography
+            variant="h6"
+            component="span"
+            sx={{ fontWeight: 700, color: 'var(--primary)' }}
+          >            💳 تسجيل كدين
+          </Typography>
+          <IconButton onClick={() => setShowDebt(false)}>
             <CloseIcon />
           </IconButton>
         </DialogTitle>
 
-        <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <Typography variant="h6" align="center" color="primary">
-            الإجمالي: {total.toFixed(2)} جنيه
-          </Typography>
+        <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 3, mt: 1 }}>
+          <Box className="glass-card" sx={{ p: 2, textAlign: 'center', bgcolor: 'rgba(0, 137, 123, 0.05)' }}>
+            <Typography variant="h6" sx={{ fontWeight: 600, color: 'var(--secondary)' }}>
+              الإجمالي: {total.toFixed(2)} جنيه
+            </Typography>
+          </Box>
 
-          <Select
-            fullWidth
-            value={selectedDebtor}
-            displayEmpty
-            onChange={(e) => setSelectedDebtor(e.target.value)}
-            variant="outlined"
-          >
-            <MenuItem disabled value="">
-              اختر اسم العميل
-            </MenuItem>
-            {debtors.map((d) => (
-              <MenuItem key={d._id} value={d.name}>
-                {d.name}
-              </MenuItem>
-            ))}
-            <MenuItem value="__new__">➕ عميل جديد</MenuItem>
-          </Select>
+          <Box>
+            <Typography variant="caption" sx={{ display: 'block', mb: 0.5, color: 'var(--primary)', fontWeight: 600 }}>اسم العميل</Typography>
+            <Select
+              fullWidth
+              value={selectedDebtor}
+              displayEmpty
+              onChange={(e) => setSelectedDebtor(e.target.value)}
+              size="small"
+            >
+              <MenuItem disabled value=""><em>اختر اسم العميل</em></MenuItem>
+              {debtors.map((d) => <MenuItem key={d._id} value={d.name}>{d.name}</MenuItem>)}
+              <MenuItem value="__new__" sx={{ color: 'var(--primary)', fontWeight: 'bold' }}>➕ عميل جديد</MenuItem>
+            </Select>
+          </Box>
 
           {selectedDebtor === "__new__" && (
             <TextField
@@ -118,30 +129,36 @@ export default function DebtModal({ items, total, showDebt, setShowDebt, handleR
               label="اسم العميل الجديد"
               value={newDebtor}
               onChange={(e) => setNewDebtor(e.target.value)}
-              variant="outlined"
+              size="small"
             />
           )}
 
-          <TextField
-            fullWidth
-            type="number"
-            label="المبلغ المدفوع (اختياري)"
-            value={partialPayment}
-            onChange={(e) => setPartialPayment(Number(e.target.value))}
-            variant="outlined"
-          />
+          <Box>
+            <Typography variant="caption" sx={{ display: 'block', mb: 0.5, color: 'var(--primary)', fontWeight: 600 }}>المبلغ المدفوع (اختياري)</Typography>
+            <TextField
+              fullWidth
+              type="number"
+              value={partialPayment}
+              onChange={(e) => setPartialPayment(Number(e.target.value))}
+              size="small"
+            />
+          </Box>
 
           <Button
             variant="contained"
-            color="primary"
             onClick={handleDebtSubmit}
             size="large"
-            sx={{ mt: 2 }}
+            sx={{
+              mt: 2, py: 1.5, borderRadius: '12px', fontWeight: 700,
+              bgcolor: 'var(--primary)',
+              '&:hover': { bgcolor: 'var(--primary-hover)' }
+            }}
           >
-            تأكيد الدين
+            تأكيد تسجيل الدين
           </Button>
         </DialogContent>
       </Dialog>
+
 
       <Snackbar
         open={snackbar.open}

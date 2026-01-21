@@ -4,29 +4,15 @@ import {
   Paper, TextField, Select, MenuItem, IconButton, Box, Typography, Dialog, DialogActions, DialogContent, DialogTitle, Button
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
-import axios from 'axios';
+import { typesWithUnits } from '../lib/unitOptions';
 
-const ProductsTable = ({ items, setItems, setShowSearch, setTotal, resetTrigger }) => {
+const ProductsTable = ({ items, setItems, setShowSearch, setTotal, onDelete }) => {
   const [selectedRow, setSelectedRow] = useState(0);
   const [deleteIndex, setDeleteIndex] = useState(null);
   const [dragOverRow, setDragOverRow] = useState(null);
 
   const knownUnits = {
-    "مضاد حيوي شرب": ["علبة"],
-    "مضاد حيوي برشام": ["شريط", "علبة"],
-    "دواء عادي برشام": ["شريط", "علبة"],
-    "فيتامين برشام": ["شريط", "علبة"],
-    "فيتامين شرب": ["علبة"],
-    "دواء شرب عادي": ["علبة"],
-    "نقط فم": ["علبة"],
-    "نقط أنف": ["علبة"],
-    "بخاخ فم": ["علبة"],
-    "بخاخ أنف": ["علبة"],
-    "مرهم": ["علبة"],
-    "مستحضرات": ["علبة"],
-    "لبوس": ["شريط", "علبة"],
-    "حقن": ["أمبول", "علبة"],
-    "فوار": ["كيس", "علبة"],
+    ...typesWithUnits,
     "agel": ["جنيه"],
   };
 
@@ -75,13 +61,10 @@ const ProductsTable = ({ items, setItems, setShowSearch, setTotal, resetTrigger 
   };
 
   const confirmDelete = () => {
-    const updated = [...items];
-    updated.splice(deleteIndex, 1);
+    onDelete(deleteIndex);
     setDeleteIndex(null);
-    recalculateAllItemsAndTotal(updated);
   };
 
-  // Row-to-row drag and drop merge
   const handleRowDragStart = (e, draggedIndex) => {
     e.dataTransfer.setData("application/json", JSON.stringify({ ...items[draggedIndex], draggedIndex }));
   };
@@ -91,96 +74,86 @@ const ProductsTable = ({ items, setItems, setShowSearch, setTotal, resetTrigger 
     setDragOverRow(targetIndex);
   };
 
-const handleRowDrop = (e, targetIndex) => {
-  e.preventDefault();
-  setDragOverRow(null);
+  const handleRowDrop = (e, targetIndex) => {
+    e.preventDefault();
+    setDragOverRow(null);
 
-  try {
-    const droppedData = JSON.parse(e.dataTransfer.getData("application/json"));
-    const draggedIndex = droppedData.draggedIndex;
+    try {
+      const droppedData = JSON.parse(e.dataTransfer.getData("application/json"));
+      const draggedIndex = droppedData.draggedIndex;
 
-    if (draggedIndex === targetIndex) return;
+      if (draggedIndex === targetIndex) return;
 
-    const draggedItem = items[draggedIndex];
-    const targetItem = items[targetIndex];
+      const draggedItem = items[draggedIndex];
+      const targetItem = items[targetIndex];
 
-    const sameName = draggedItem.name === targetItem.name;
-    const sameExpiry =
-      new Date(draggedItem.expiry).toISOString().slice(0, 10) ===
-      new Date(targetItem.expiry).toISOString().slice(0, 10);
+      const sameName = draggedItem.name === targetItem.name;
+      const sameExpiry =
+        new Date(draggedItem.expiry).toISOString().slice(0, 10) ===
+        new Date(targetItem.expiry).toISOString().slice(0, 10);
 
-    if (sameName && sameExpiry) {
-      const targetConversion = parseFloat(targetItem.fullProduct?.unitConversion ?? targetItem.unitConversion ?? 1);
-      const draggedConversion = parseFloat(draggedItem.fullProduct?.unitConversion ?? draggedItem.unitConversion ?? 1);
+      if (sameName && sameExpiry) {
+        const targetConversion = parseFloat(targetItem.fullProduct?.unitConversion ?? targetItem.unitConversion ?? 1);
+        const draggedConversion = parseFloat(draggedItem.fullProduct?.unitConversion ?? draggedItem.unitConversion ?? 1);
 
-      // Convert both to boxes
-      const targetInBoxes = targetItem.unit === "شريط"
-        ? parseFloat(targetItem.quantity) / targetConversion
-        : parseFloat(targetItem.quantity);
+        const targetInBoxes = targetItem.unit === "شريط"
+          ? parseFloat(targetItem.quantity) / targetConversion
+          : parseFloat(targetItem.quantity);
 
-      const draggedInBoxes = draggedItem.unit === "شريط"
-        ? parseFloat(draggedItem.quantity) / draggedConversion
-        : parseFloat(draggedItem.quantity);
+        const draggedInBoxes = draggedItem.unit === "شريط"
+          ? parseFloat(draggedItem.quantity) / draggedConversion
+          : parseFloat(draggedItem.quantity);
 
-      // New total in boxes
-      const newTotalBoxes = targetInBoxes + draggedInBoxes;
+        const newTotalBoxes = targetInBoxes + draggedInBoxes;
 
-      const updatedItems = [...items];
-      updatedItems[targetIndex] = {
-        ...updatedItems[targetIndex],
-        quantity: newTotalBoxes, // always store as boxes
-        unit: "علبة" // force to boxes
-      };
+        const updatedItems = [...items];
+        updatedItems[targetIndex] = {
+          ...updatedItems[targetIndex],
+          quantity: newTotalBoxes,
+          unit: "علبة"
+        };
 
-      // Remove dragged row
-      updatedItems.splice(draggedIndex, 1);
-
-      recalculateAllItemsAndTotal(updatedItems);
+        updatedItems.splice(draggedIndex, 1);
+        recalculateAllItemsAndTotal(updatedItems);
+      }
+    } catch (err) {
+      console.error("Invalid row drop data", err);
     }
-  } catch (err) {
-    console.error("Invalid row drop data", err);
-  }
-};
+  };
 
 
   useEffect(() => {
     recalculateAllItemsAndTotal(items);
   }, []);
 
-  useEffect(() => {
-    if (resetTrigger) {
-      setItems([]);
-      setTotal(0);
-    }
-  }, [resetTrigger]);
-
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", height: "100vh", p: 2 }}>
-      <Typography variant="h6" gutterBottom>
-        قائمة المنتجات
+    <Box className="glass-card" sx={{ p: 3, mb: 4, mt: 2 }}>
+      <Typography variant="h5" sx={{ mb: 3, color: 'var(--primary)', fontWeight: 700 }}>
+        🧾 فاتورة المبيعات
       </Typography>
 
-      <TableContainer component={Paper} sx={{ flexGrow: 1, overflowY: "auto" }}>
-        <Table size="small" stickyHeader>
+      <TableContainer sx={{ maxHeight: 600 }}>
+        <Table stickyHeader className="modern-table">
           <TableHead>
             <TableRow>
-              <TableCell>الاسم</TableCell>
-              <TableCell>السعر</TableCell>
-              <TableCell>الكمية</TableCell>
-              <TableCell>الوحدة</TableCell>
-              <TableCell>تاريخ الانتهاء</TableCell>
-              <TableCell>المتبقي</TableCell>
-              <TableCell>الإجمالي</TableCell>
-              <TableCell>حذف</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>المنتج</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>سعر الوحدة</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>الكمية</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>الوحدة</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>الصلاحية</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>المخزون</TableCell>
+              <TableCell sx={{ fontWeight: 'bold' }}>الإجمالي</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 'bold' }}>الإجراء</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {items.map((item, i) => {
               const recalculated = recalculateItem(item);
               const full = item.fullProduct || {};
-              const unitOptions = item.unitOptions?.map(u => typeof u === 'string' ? u : u.value)
-                || full.unitOptions?.map(u => typeof u === 'string' ? u : u.value)
-                || (full.unit ? [full.unit] : []);
+              const unitOptions =
+                item.unitOptions?.map((u) => typeof u === "string" ? u : u.value) ||
+                full.unitOptions?.map((u) => typeof u === "string" ? u : u.value) ||
+                (full.unit ? [full.unit] : []);
 
               return (
                 <TableRow
@@ -189,14 +162,14 @@ const handleRowDrop = (e, targetIndex) => {
                   onDragStart={(e) => handleRowDragStart(e, i)}
                   onDragOver={(e) => handleRowDragOver(e, i)}
                   onDrop={(e) => handleRowDrop(e, i)}
-                  selected={i === selectedRow}
-                  sx={{ backgroundColor: dragOverRow === i ? "#e3f2fd" : "inherit" }}
+                  sx={{
+                    bgcolor: dragOverRow === i ? 'rgba(0, 137, 123, 0.1)' : 'transparent',
+                    '& td': { border: 0 }
+                  }}
                 >
-                  <TableCell>{item.name}</TableCell>
+                  <TableCell sx={{ fontWeight: 500 }}>{item.name}</TableCell>
                   <TableCell>
-                    {parseFloat(recalculated.total) > 0 && parseFloat(item.quantity) > 0
-                      ? (recalculated.total / item.quantity).toFixed(2)
-                      : "0.00"}
+                    {(parseFloat(item.total) / (item.quantity || 1)).toFixed(2)}
                   </TableCell>
                   <TableCell>
                     <TextField
@@ -204,6 +177,7 @@ const handleRowDrop = (e, targetIndex) => {
                       size="small"
                       value={item.quantity}
                       onChange={(e) => handleQuantityChange(i, e.target.value)}
+                      sx={{ width: 80 }}
                     />
                   </TableCell>
                   <TableCell>
@@ -217,23 +191,32 @@ const handleRowDrop = (e, targetIndex) => {
                       ))}
                     </Select>
                   </TableCell>
-                  <TableCell>{new Date(item.expiry).toLocaleDateString("en-GB")}</TableCell>
-                  <TableCell>{recalculated.remaining}</TableCell>
-                  <TableCell>{recalculated.total.toFixed(2)}</TableCell>
                   <TableCell>
-                    <IconButton onClick={() => setDeleteIndex(i)} color="error">
+                    {item.expiry ? new Date(item.expiry).toLocaleDateString("ar-EG") : '-'}
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" color={parseFloat(recalculated.remaining) < 5 ? "error" : "textSecondary"}>
+                      {recalculated.remaining}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', color: 'var(--primary)' }}>
+                    {parseFloat(recalculated.total).toFixed(2)}
+                  </TableCell>
+                  <TableCell align="center">
+                    <IconButton size="small" onClick={() => setDeleteIndex(i)} color="error">
                       <DeleteIcon />
                     </IconButton>
                   </TableCell>
                 </TableRow>
               );
             })}
+
             <TableRow
               onClick={() => setShowSearch(true)}
-              sx={{ cursor: 'pointer', backgroundColor: '#f0d1d1b4' }}
+              sx={{ cursor: 'pointer', '& td': { border: 0 } }}
             >
-              <TableCell sx={{ height: 50 }} colSpan={8} align="center">
-                ➕ أضف للقائمة
+              <TableCell colSpan={8} align="center" sx={{ py: 3, color: 'var(--primary)', fontWeight: 600 }}>
+                ➕ أضف منتج جديد للقائمة
               </TableCell>
             </TableRow>
           </TableBody>
@@ -241,12 +224,14 @@ const handleRowDrop = (e, targetIndex) => {
       </TableContainer>
 
       <Dialog open={deleteIndex !== null} onClose={() => setDeleteIndex(null)}>
-        <DialogTitle>تأكيد الحذف</DialogTitle>
-        <DialogContent>هل أنت متأكد أنك تريد حذف هذا المنتج؟</DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteIndex(null)}>إلغاء</Button>
-          <Button color="error" onClick={confirmDelete}>حذف</Button>
-        </DialogActions>
+        <Box p={3} textAlign="center">
+          <Typography variant="h6" gutterBottom>تأكيد الحذف</Typography>
+          <Typography variant="body1" sx={{ mb: 3 }}>هل أنت متأكد أنك تريد حذف هذا المنتج من الفاتورة؟</Typography>
+          <Box display="flex" justifyContent="center" gap={2}>
+            <Button variant="contained" color="error" onClick={confirmDelete}>حذف</Button>
+            <Button variant="outlined" onClick={() => setDeleteIndex(null)}>إلغاء</Button>
+          </Box>
+        </Box>
       </Dialog>
     </Box>
   );

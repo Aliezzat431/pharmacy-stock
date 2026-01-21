@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import {
   Container,
   TextField,
@@ -20,10 +21,19 @@ const Login = () => {
   const [isRegister, setIsRegister] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [paymentPortName, setPaymentPortName] = useState('');
+  const [pharmacyId, setPharmacyId] = useState('1');
   const [popup, setPopup] = useState({ open: false, type: 'info', message: '' });
   const [loading, setLoading] = useState(false);
   const [registerBlocked, setRegisterBlocked] = useState(false);
+  const [pharmacyName, setPharmacyName] = useState("صيدلية الخير");
+
+  React.useEffect(() => {
+    const saved = localStorage.getItem("pharmacy-info");
+    if (saved) {
+      const info = JSON.parse(saved);
+      if (info.name) setPharmacyName(info.name);
+    }
+  }, []);
 
   const showPopup = (type, message) => {
     setPopup({ open: true, type, message });
@@ -35,15 +45,11 @@ const Login = () => {
       showPopup('error', 'الرجاء إدخال اسم المستخدم وكلمة المرور');
       return;
     }
-    if (isRegister && !paymentPortName.trim()) {
-      showPopup('error', 'الرجاء إدخال اسم بوابة الدفع');
-      return;
-    }
 
     const endpoint = isRegister ? '/api/register' : '/api/login';
     const payload = isRegister
-      ? { username, password, paymentPortName }
-      : { username, password };
+      ? { username, password, pharmacyId }
+      : { username, password, pharmacyId };
 
     setLoading(true);
     try {
@@ -79,9 +85,27 @@ const Login = () => {
   };
 
   return (
-    <Container maxWidth="sm" dir="rtl" sx={{ mt: 8 }}>
-      <Paper elevation={4} sx={{ p: 4 }}>
-        <Typography variant="h5" align="center" gutterBottom>
+  <Container maxWidth="sm" dir="rtl" sx={{ mt: 8 }}>
+      <Paper elevation={4} sx={{
+        p: 4,
+        borderRadius: '24px',
+        textAlign: 'center',
+        bgcolor: 'var(--glass-bg)',
+        backgroundImage: 'url(/Bg.jpeg)',
+        backdropFilter: 'blur(10px)',
+        border: '1px solid var(--glass-border)'
+      }}>
+        <Box sx={{ mb: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+
+          <Typography variant="h4" sx={{ fontWeight: 900, color: 'var(--primary)' }}>
+            {pharmacyName}
+          </Typography>
+          <Typography variant="body1" color="text.secondary" sx={{ fontWeight: 600 }}>
+            نظام إدارة الصيدلية المتكامل
+          </Typography>
+        </Box>
+
+        <Typography variant="h5" align="center" gutterBottom sx={{ fontWeight: 700, mb: 3 }}>
           {isRegister ? 'إنشاء حساب جديد' : 'تسجيل الدخول'}
         </Typography>
 
@@ -106,17 +130,21 @@ const Login = () => {
               onChange={(e) => setPassword(e.target.value)}
               required
             />
-            {isRegister && (
-              <TextField
-                label="اسم بوابة الدفع"
-                variant="outlined"
-                fullWidth
-                margin="normal"
-                value={paymentPortName}
-                onChange={(e) => setPaymentPortName(e.target.value)}
-                required
-              />
-            )}
+
+            <TextField
+              select
+              label="اختر الصيدلية"
+              value={pharmacyId}
+              onChange={(e) => setPharmacyId(e.target.value)}
+              SelectProps={{ native: true }}
+              fullWidth
+              margin="normal"
+              sx={{ mb: 2 }}
+            >
+              <option value="1">صيدلية 1 (الرئيسية)</option>
+              <option value="2">صيدلية 2 (الفرعية)</option>
+            </TextField>
+
             <Button
               type="submit"
               variant="contained"
@@ -157,8 +185,8 @@ const Login = () => {
           {popup.type === 'success'
             ? 'نجاح'
             : popup.type === 'error'
-            ? 'خطأ'
-            : 'معلومة'}
+              ? 'خطأ'
+              : 'معلومة'}
         </DialogTitle>
         <DialogContent>
           <Typography>{popup.message}</Typography>
@@ -170,7 +198,7 @@ const Login = () => {
         </DialogActions>
       </Dialog>
     </Container>
-  );
+    );
 };
 
 export default Login;

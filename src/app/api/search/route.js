@@ -1,36 +1,40 @@
 import { NextResponse } from "next/server";
-import { connectDB } from "@/app/lib/connectDb";
-import Product from "@/app/models/product.model";
-import { typesWithUnits } from "@/app/lib/unitOptions";
+import { getDb } from "@/app/lib/db";
+import { getProductModel } from "@/app/lib/models/Product";
+import { verifyToken } from "@/app/lib/verifyToken";
 
 export async function GET(req) {
-  await connectDB();
+  try {
+    // Authenticate to get pharmacyId
+    const user = verifyToken(req.headers);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { searchParams } = new URL(req.url);
-  const query = searchParams.get("q")?.trim();
-  const mode = searchParams.get("mode")?.toLowerCase() || "all";
+    const conn = await getDb(user.pharmacyId);
+    const Product = getProductModel(conn);
 
-  let filter = {};
+    const { searchParams } = new URL(req.url);
+    const query = searchParams.get("q")?.trim();
+    const mode = searchParams.get("mode")?.toLowerCase() || "all";
 
-  // فلتر البحث بالكلمة
-  if (query) {
-    filter.$or = [
-      { name: { $regex: query, $options: "i" } },
-      { barcode: { $regex: query, $options: "i" } },
-    ];
+    let filter = {};
+
+    if (query) {
+      filter.$or = [
+        { name: { $regex: query, $options: 'i' } },
+        { barcode: { $regex: query, $options: 'i' } },
+        { barcodes: { $regex: query, $options: 'i' } }
+      ];
+    }
+
+    if (mode === "shortcomings") {
+      filter.isShortcoming = true;
+    }
+
+    const products = await Product.find(filter).lean();
+
+    return NextResponse.json({ products });
+  } catch (error) {
+    console.error("Search API Error:", error);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
-console.log(filter);
-
-  if (mode === "shortcomings") {
-  filter.isShortcoming = true;
-  }
-
-  const rawProducts = await Product.find(filter).lean();
-
-  const products = rawProducts.map((product) => ({
-    ...product,
-    unitOptions: typesWithUnits[product.type] || [product.unit],
-  }));
-
-  return NextResponse.json({ products });
 }

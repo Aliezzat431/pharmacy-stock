@@ -1,10 +1,12 @@
-import { connectDB } from '@/app/lib/connectDb';
+import { getDb } from '@/app/lib/db';
 import { verifyToken } from '@/app/lib/verifyToken';
-import Product from '@/app/models/product.model';
-import companyModel from '@/app/models/company.model';
-import winningModel from '@/app/models/winning.model';
 import { NextResponse } from 'next/server';
 import { typesWithUnits } from '@/app/lib/unitOptions';
+import { getSetting } from '@/app/lib/getSetting';
+import { getProductModel } from '@/app/lib/models/Product';
+import { getCompanyModel } from '@/app/lib/models/Company';
+import { getWinningModel } from '@/app/lib/models/Winning';
+import mongoose from 'mongoose';
 
 export async function POST(req) {
   try {
@@ -13,7 +15,11 @@ export async function POST(req) {
       return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
     }
 
-    await connectDB();
+    const conn = await getDb(user.pharmacyId);
+    const Product = getProductModel(conn);
+    const Company = getCompanyModel(conn);
+    const Winning = getWinningModel(conn);
+
     const body = await req.json();
 
     if (!Array.isArray(body) || body.length === 0) {
@@ -27,129 +33,133 @@ export async function POST(req) {
     let totalAmount = 0;
     let reasonParts = [];
 
-    for (const productData of body) {
-      const {
-        name,
-        type,
-        quantity,
-        barcode,
-        unitConversion,
-        expiryDate,
-        purchasePrice,
-        salePrice,
-        company,
-      } = productData;
+    const session = await conn.startSession();
+    session.startTransaction();
 
-      if (
-        !name || !type || !barcode || !company ||
-        purchasePrice === undefined || salePrice === undefined || quantity === undefined
-      ) {
-        return NextResponse.json({
-          error: "جميع الحقول مطلوبة: الاسم، النوع، السعرين، الكمية، الباركود، الشركة",
-        }, { status: 400 });
-      }
+    try {
+      for (const productData of body) {
+        const {
+          name,
+          type,
+          quantity,
+          barcode,
+          unitConversion,
+          expiryDate,
+          purchasePrice,
+          salePrice,
+          company,
+          details,
+        } = productData;
 
-      const allowedUnits = typesWithUnits[type];
-      if (!allowedUnits) {
-        return NextResponse.json({ error: `النوع "${type}" غير معروف.` }, { status: 400 });
-      }
-
-      // Check if company exists BEFORE creation
-      const companyExists = await companyModel.findOne({ name: company });
-      if (!companyExists) {
-        return NextResponse.json({
-          error: `الشركة "${company}" غير موجودة. يرجى إنشاؤها أولاً.`,
-        }, { status: 400 });
-      }
-
-      const parsedPurchasePrice = Number(purchasePrice);
-      const parsedSalePrice = Number(salePrice);
-      const parsedQuantity = Number(quantity);
-      const parsedUnitConversion =
-        unitConversion !== null && unitConversion !== undefined
-          ? Number(unitConversion)
-          : null;
-
-      if (isNaN(parsedPurchasePrice) || parsedPurchasePrice < 0) {
-        return NextResponse.json({ error: "سعر الشراء يجب أن يكون رقمًا موجبًا" }, { status: 400 });
-      }
-
-      if (isNaN(parsedSalePrice) || parsedSalePrice < 0) {
-        return NextResponse.json({ error: "سعر البيع يجب أن يكون رقمًا موجبًا" }, { status: 400 });
-      }
-
-      if (isNaN(parsedQuantity) || parsedQuantity < 0) {
-        return NextResponse.json({ error: "الكمية يجب أن تكون رقمًا موجبًا" }, { status: 400 });
-      }
-
-      const hasMultipleUnits = allowedUnits.length === 2;
-      const latestUnit = allowedUnits.at(-1);
-
-      if (hasMultipleUnits) {
         if (
-          parsedUnitConversion === null ||
-          isNaN(parsedUnitConversion) ||
-          parsedUnitConversion <= 0
+          !name || !type || !barcode || !company ||
+          purchasePrice === undefined || salePrice === undefined || quantity === undefined
         ) {
-          return NextResponse.json({
-            error: `عدد الوحدات داخل العلبة يجب أن يكون رقمًا أكبر من صفر للمنتج "${name}"`,
-          }, { status: 400 });
+          throw new Error("جميع الحقول مطلوبة: الاسم، النوع، السعرين، الكمية، الباركود، الشركة");
         }
+
+        const allowedUnits = typesWithUnits[type];
+        if (!allowedUnits) {
+          throw new Error(`النوع "${type}" غير معروف.`);
+        }
+
+        // Check or create company
+        let companyDoc = await Company.findOne({ name: company }).session(session);
+        if (!companyDoc) {
+          throw new Error(`الشركة "${company}" غير موجودة. يرجى إنشاؤها أولاً.`);
+        }
+
+        const parsedPurchasePrice = Number(purchasePrice);
+        const parsedSalePrice = Number(salePrice);
+        const parsedQuantity = Number(quantity);
+        const parsedUnitConversion =
+          unitConversion !== null && unitConversion !== undefined
+            ? Number(unitConversion)
+            : null;
+
+        const hasMultipleUnits = allowedUnits.length === 2;
+        const latestUnit = allowedUnits.at(-1);
+
+        if (hasMultipleUnits && (parsedUnitConversion === null || isNaN(parsedUnitConversion) || parsedUnitConversion <= 0)) {
+          throw new Error(`عدد الوحدات داخل العلبة يجب أن يكون رقمًا أكبر من صفر للمنتج "${name}"`);
+        }
+
+        // Merge logic
+        let product = await Product.findOne({ name: name.trim(), type: type, price: parsedSalePrice }).session(session);
+
+        const threshold = await getSetting(conn, 'lowStockThreshold', 5);
+
+        if (product) {
+          // Update existing
+          if (!product.barcodes.includes(barcode)) {
+            product.barcodes.push(barcode);
+          }
+          product.barcode = barcode;
+
+          product.quantity += parsedQuantity;
+          product.isShortcoming = product.quantity < threshold;
+
+          await product.save({ session });
+        } else {
+          // Create new
+          const isShortcoming = parsedQuantity < threshold;
+          const newProduct = new Product({
+            name: name.trim(),
+            type,
+            unit: latestUnit,
+            quantity: parsedQuantity,
+            price: parsedSalePrice,
+            purchasePrice: parsedPurchasePrice,
+            barcode,
+            barcodes: [barcode],
+            unitConversion: parsedUnitConversion,
+            isBaseUnit: !hasMultipleUnits,
+            expiryDate,
+            isShortcoming,
+            company,
+            details: details || "",
+            unitOptions: allowedUnits
+          });
+
+          product = await newProduct.save({ session });
+        }
+
+        createdProducts.push({
+          name: product.name,
+          price: product.price,
+          quantity: product.quantity,
+          unit: product.unit,
+          total: product.price * product.quantity,
+          unitOptions: allowedUnits,
+          fullProduct: product,
+        });
+
+        totalAmount += parsedPurchasePrice * parsedQuantity;
+        reasonParts.push(`${parsedQuantity} ${product.unit} ${name}`);
       }
 
-      const product = new Product({
-        name,
-        type,
-        unit: latestUnit,
-        quantity: parsedQuantity,
-        price: parsedSalePrice,
-        purchasePrice: parsedPurchasePrice,
-        barcode,
-        unitConversion: parsedUnitConversion,
-        isBaseUnit: !hasMultipleUnits,
-        expiryDate: expiryDate ? new Date(expiryDate) : undefined,
-        isShortcoming: parsedQuantity < 5,
-        company,
-      });
-
-      await product.save();
-
-      // ✅ RECHECK company still exists AFTER product creation
-      const stillExists = await companyModel.findOne({ name: company });
-      if (!stillExists) {
-        await Product.findByIdAndDelete(product._id);
-        return NextResponse.json({
-          error: `حدث خطأ: تم إنشاء منتج لكن الشركة "${company}" غير موجودة. تم حذف المنتج.`,
-        }, { status: 400 });
+      if (totalAmount > 0 && reasonParts.length > 0) {
+        const reason = `تم شراء ${reasonParts.join(" و ")}`;
+        await Winning.create([{
+          amount: totalAmount,
+          reason,
+          transactionType: 'out'
+        }], { session });
       }
 
-      createdProducts.push({
-        name: product.name,
-        price: product.price,
-        quantity: product.quantity,
-        unit: product.unit,
-        total: product.price * product.quantity,
-        unitOptions: allowedUnits,
-        fullProduct: product,
-      });
+      await session.commitTransaction();
+      session.endSession();
 
-      totalAmount += parsedPurchasePrice * parsedQuantity;
-      reasonParts.push(`${parsedQuantity} ${product.unit} ${name}`);
+      return NextResponse.json({
+        message: "تم إنشاء جميع المنتجات وتسجيل المصروف كمجموعة واحدة",
+        createdProducts,
+      }, { status: 201 });
+
+    } catch (innerError) {
+      await session.abortTransaction();
+      session.endSession();
+      return NextResponse.json({ error: innerError.message }, { status: 400 });
     }
-
-    if (totalAmount > 0 && reasonParts.length > 0) {
-      const reason = `تم شراء ${reasonParts.join(" و ")}`;
-      await winningModel.create({
-        amount: totalAmount,
-        reason,
-        transactionType: "out",
-      });
-    }
-
-    return NextResponse.json({
-      message: "تم إنشاء جميع المنتجات وتسجيل المصروف كمجموعة واحدة",
-      createdProducts,
-    }, { status: 201 });
 
   } catch (error) {
     console.error("POST error:", error);
@@ -157,12 +167,24 @@ export async function POST(req) {
   }
 }
 
+export async function GET(req) {
+  try {
+    const user = verifyToken(req.headers);
+    if (!user) {
+      return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
+    }
 
+    const conn = await getDb(user.pharmacyId);
+    const Product = getProductModel(conn);
 
+    const products = await Product.find({}).sort({ name: 1 }).lean();
 
-
-
-
+    return NextResponse.json(products);
+  } catch (error) {
+    console.error("GET error:", error);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+}
 
 export async function PATCH(req) {
   try {
@@ -171,74 +193,115 @@ export async function PATCH(req) {
       return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
     }
 
-    await connectDB();
+    const conn = await getDb(user.pharmacyId);
+    const Product = getProductModel(conn);
+    const Winning = getWinningModel(conn);
+
     const body = await req.json();
     const { id, mode } = body;
 
     if (!id || !mode) {
-      return new Response(JSON.stringify({ error: 'Missing id or mode' }), { status: 400 });
+      return NextResponse.json({ error: 'Missing id or mode' }, { status: 400 });
     }
 
     if (mode === 'barcode') {
       const { barcode } = body;
-      if (!barcode) {
-        return new Response(JSON.stringify({ error: 'Missing barcode' }), { status: 400 });
-      }
+      if (!barcode) return NextResponse.json({ error: 'Missing barcode' }, { status: 400 });
+
       await Product.findByIdAndUpdate(id, { barcode });
-      return new Response(JSON.stringify({ success: true }));
+      return NextResponse.json({ success: true });
     }
 
     if (mode === 'expiryDate') {
       const { expiryDate } = body;
       if (!expiryDate || isNaN(Date.parse(expiryDate))) {
-        return new Response(JSON.stringify({ error: 'Invalid expiry date' }), { status: 400 });
+        return NextResponse.json({ error: 'Invalid expiry date' }, { status: 400 });
       }
-      await Product.findByIdAndUpdate(id, { expiryDate: new Date(expiryDate) });
-      return new Response(JSON.stringify({ success: true }));
+      await Product.findByIdAndUpdate(id, { expiryDate });
+      return NextResponse.json({ success: true });
     }
 
     if (mode === 'quantity') {
       const { quantity } = body;
       if (typeof quantity !== 'number' || isNaN(quantity)) {
-        return new Response(JSON.stringify({ error: 'Invalid quantity' }), { status: 400 });
+        return NextResponse.json({ error: 'Invalid quantity' }, { status: 400 });
       }
 
       const product = await Product.findById(id);
-      if (!product) {
-        return new Response(JSON.stringify({ error: 'Product not found' }), { status: 404 });
-      }
+      if (!product) return NextResponse.json({ error: 'Product not found' }, { status: 404 });
+
+      if (quantity < 0) return NextResponse.json({ error: 'الكمية لا يمكن أن تكون سالبة' }, { status: 400 });
+
+      const threshold = await getSetting(conn, 'lowStockThreshold', 5);
 
       const oldQuantity = product.quantity;
-      const newQuantity = quantity;
+      product.quantity = quantity;
+      product.isShortcoming = quantity < threshold;
 
-      // Prevent negative quantities
-      if (newQuantity < 0) {
-        return new Response(JSON.stringify({ error: 'الكمية لا يمكن أن تكون سالبة' }), { status: 400 });
-      }
+      await product.save();
 
-      await Product.findByIdAndUpdate(id, { quantity: newQuantity, isShortcoming: newQuantity < 5 });
+      const diff = quantity - oldQuantity;
+      if (diff !== 0) {
+        const transactionType = diff > 0 ? 'out' : 'in';
+        const amount = Math.abs(diff * product.price);
+        const reason = diff > 0
+          ? `زيادة كمية ${product.name} من ${oldQuantity} ${product.unit} إلى ${quantity} ${product.unit}`
+          : `نقص كمية ${product.name} من ${oldQuantity} ${product.unit} إلى ${quantity} ${product.unit}`;
 
-      const diff = newQuantity - oldQuantity;
-      const transactionType = diff > 0 ? 'out' : 'in';
-      const amount = Math.abs(diff * product.price);
-
-      if (!isNaN(amount)) {
-        await winningModel.create({
+        await Winning.create({
           amount,
-          reason:
-            diff > 0
-              ? `زيادة كمية ${product.name} من ${oldQuantity} ${product.unit} إلى ${newQuantity} ${product.unit}`
-              : `نقص كمية ${product.name} من ${oldQuantity} ${product.unit} إلى ${newQuantity} ${product.unit}`,
-          transactionType,
+          reason,
+          transactionType
         });
       }
 
-      return new Response(JSON.stringify({ success: true }));
+      return NextResponse.json({ success: true });
     }
 
-    return new Response(JSON.stringify({ error: 'Invalid mode' }), { status: 400 });
+    if (mode === 'unitConversion') {
+      const { unitConversion } = body;
+      const parsed = Number(unitConversion);
+      if (!parsed || isNaN(parsed) || parsed <= 0) {
+        return NextResponse.json({ error: 'قيمة التحويل يجب أن تكون رقم أكبر من صفر' }, { status: 400 });
+      }
+
+      await Product.findByIdAndUpdate(id, { unitConversion: parsed });
+      return NextResponse.json({ success: true });
+    }
+
+    return NextResponse.json({ error: 'Invalid mode' }, { status: 400 });
   } catch (error) {
     console.error('PATCH error:', error);
-    return new Response(JSON.stringify({ error: 'Server error' }), { status: 500 });
+    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+  }
+}
+
+export async function DELETE(req) {
+  try {
+    const user = verifyToken(req.headers);
+    if (!user) {
+      return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+    }
+
+    const conn = await getDb(user.pharmacyId);
+    const Product = getProductModel(conn);
+
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json({ error: "Missing id" }, { status: 400 });
+    }
+
+    const deletedProduct = await Product.findByIdAndDelete(id);
+
+    if (!deletedProduct) {
+      return NextResponse.json({ error: "Product not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true, message: "Product deleted successfully" });
+  } catch (error) {
+    console.error("DELETE error:", error);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
