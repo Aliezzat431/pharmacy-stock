@@ -36,11 +36,11 @@ export default function SettingsPage() {
   const [isDarkMode, setIsDarkMode] = useState(false);
 
   const [pharmacyInfo, setPharmacyInfo] = useState({
-    name: "صيدلية الخير",
+    name: "Smart Pharma",
     address: "",
     phone: "",
     currency: "ج.م",
-    receiptHeader: "صيدلية الخير - نعتني بصحتكم",
+    receiptHeader: "نعتني بصحتكم",
     receiptFooter: "نتمنى لكم الشفاء العاجل",
     lowStockThreshold: 5,
     baseCapital: 100000

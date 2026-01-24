@@ -25,7 +25,7 @@ const Login = () => {
   const [popup, setPopup] = useState({ open: false, type: 'info', message: '' });
   const [loading, setLoading] = useState(false);
   const [registerBlocked, setRegisterBlocked] = useState(false);
-  const [pharmacyName, setPharmacyName] = useState("صيدلية الخير");
+  const [pharmacyName, setPharmacyName] = useState("Smart Pharma");
 
   React.useEffect(() => {
     const saved = localStorage.getItem("pharmacy-info");

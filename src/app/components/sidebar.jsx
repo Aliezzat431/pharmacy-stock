@@ -20,7 +20,7 @@ const links = [
 
 const Sidebar = () => {
   const pathname = usePathname();
-  const [pharmacyName, setPharmacyName] = React.useState("صيدلية الخير");
+  const [pharmacyName, setPharmacyName] = React.useState("Smart Pharma");
 
   React.useEffect(() => {
     const loadInfo = () => {
@@ -53,7 +53,7 @@ const Sidebar = () => {
     >
       {/* Branding */}
       <Box sx={{ mb: 6, display: 'flex', alignItems: 'center', gap: 2, px: 2 }}>
-        <Image src="/Bg.jpeg" alt="Logo" width={45} height={45} priority />
+        <Image src="https://www.istockphoto.com/illustrations/pharmacy-logo" alt="Logo" width={45} height={45} priority />
         <Typography variant="h6" sx={{ fontWeight: 800, color: 'var(--primary)', lineHeight: 1.2 }}>
           {pharmacyName}
         </Typography>

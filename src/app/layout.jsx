@@ -11,7 +11,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
       <head>
-        <link rel="icon" href="/Bg.jpeg" />
+        <link rel="icon" href="https://www.istockphoto.com/illustrations/pharmacy-logo" />
         <script
           dangerouslySetInnerHTML={{
             __html: `
