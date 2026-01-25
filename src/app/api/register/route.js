@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/app/lib/db';
 import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
 import { getUserModel } from '@/app/lib/models/User';
 
 export async function POST(request) {
@@ -65,12 +64,10 @@ export async function POST(request) {
       );
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
+    // **No hashing**
     const newUser = await User.create({
       username: username.trim(),
-      password: hashedPassword,
+      password: password,
       pharmacyId: pharmacyId || "1"
     });
 
