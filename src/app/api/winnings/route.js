@@ -23,9 +23,7 @@ export async function GET(req) {
     const baseCapital = await getSetting(conn, 'baseCapital', 100000);
     const rawWinnings = await Winning.find({}).sort({ date: 1 }).lean();
 
-    // Manual grouping by date in JS
     const grouped = rawWinnings.reduce((acc, curr) => {
-      // curr.date is a Date object in Mongoose, need to convert to YYYY-MM-DD
       const dateStr = new Date(curr.date).toISOString().split('T')[0];
 
       if (!acc[dateStr]) {
@@ -34,18 +32,25 @@ export async function GET(req) {
           totalIn: 0,
           totalOut: 0,
           totalSuspended: 0,
+          totalSadaqah: 0,
           orders: []
         };
       }
 
+      // حساب المبالغ
       if (curr.transactionType === 'in') acc[dateStr].totalIn += curr.amount;
       else if (curr.transactionType === 'out') acc[dateStr].totalOut += curr.amount;
       else if (curr.transactionType === 'suspended') acc[dateStr].totalSuspended += curr.amount;
+      else if (curr.transactionType === 'sadaqah') acc[dateStr].totalSadaqah += curr.amount;
+
+      const reason = curr.transactionType === 'sadaqah'
+        ? "صدقة (غير مدفوعة)"
+        : curr.reason;
 
       acc[dateStr].orders.push({
-        reason: curr.reason,
+        reason,
         amount: curr.amount,
-        type: curr.transactionType
+        type: curr.transactionType === 'sadaqah' ? 'sadaqah' : curr.transactionType
       });
 
       return acc;
@@ -62,6 +67,7 @@ export async function GET(req) {
         totalIn: day.totalIn,
         totalOut: day.totalOut,
         totalSuspended: day.totalSuspended,
+        totalSadaqah: day.totalSadaqah || 0,
         currentCapital: runningTotal,
         orders: day.orders
       };

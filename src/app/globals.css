@@ -1,6 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Amiri&family=Inter:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
+/* ================== Variables ================== */
 :root {
   --background: #f4f7f6;
   --foreground: #1a202c;
@@ -22,6 +23,7 @@
   --font-sans: var(--font-sans);
 }
 
+/* ================== Base ================== */
 body {
   background-color: var(--background) !important;
   color: var(--foreground) !important;
@@ -30,6 +32,7 @@ body {
   margin: 0;
 }
 
+/* ================== Dark Mode ================== */
 .dark {
   --background: #0f172a;
   --foreground: #f1f5f9;
@@ -39,7 +42,7 @@ body {
   --secondary: #66bb6a;
 }
 
-/* Global MUI Dark Overrides */
+/* ================== MUI Dark Overrides ================== */
 .dark .MuiTypography-root {
   color: var(--foreground) !important;
 }
@@ -77,22 +80,24 @@ body {
   border-color: var(--glass-border) !important;
 }
 
-
+/* ================== Glass Card ================== */
 .glass-card {
   background: var(--glass-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--glass-border);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
   border-radius: 16px;
 }
 
+/* ================== Modern Table ================== */
 .modern-table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0 8px;
 }
 
+/* Rows */
 .modern-table tr {
   transition: transform 0.2s;
 }
@@ -101,15 +106,16 @@ body {
   transform: translateY(-2px);
 }
 
+/* Headers */
 .modern-table th {
   padding: 12px;
-  text-align: right;
   font-weight: 600;
   color: var(--primary);
   background: var(--glass-bg);
   backdrop-filter: blur(12px);
 }
 
+/* Cells */
 .modern-table td {
   padding: 16px;
   background: var(--glass-bg);
@@ -118,6 +124,7 @@ body {
   border-bottom: 1px solid var(--glass-border);
 }
 
+/* Rounded edges */
 .modern-table td:first-child {
   border-left: 1px solid var(--glass-border);
   border-top-left-radius: 12px;
@@ -128,4 +135,24 @@ body {
   border-right: 1px solid var(--glass-border);
   border-top-right-radius: 12px;
   border-bottom-right-radius: 12px;
+}
+
+/* ================== Center Content ================== */
+.modern-table th,
+.modern-table td {
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* Center any element inside cells (buttons, inputs, icons) */
+.modern-table td > * {
+  margin: auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* MUI Inputs inside table */
+.modern-table .MuiInputBase-root {
+  margin: auto;
 }

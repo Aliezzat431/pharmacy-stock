@@ -6,13 +6,17 @@ import { getSetting } from '@/app/lib/getSetting';
 import { getProductModel } from '@/app/lib/models/Product';
 import { getCompanyModel } from '@/app/lib/models/Company';
 import { getWinningModel } from '@/app/lib/models/Winning';
-import mongoose from 'mongoose';
 
 export async function POST(req) {
+  let session;
+
   try {
     const user = verifyToken(req.headers);
     if (!user) {
-      return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { success: false, message: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
     const conn = await getDb(user.pharmacyId);
@@ -33,7 +37,7 @@ export async function POST(req) {
     let totalAmount = 0;
     let reasonParts = [];
 
-    const session = await conn.startSession();
+    session = await conn.startSession();
     session.startTransaction();
 
     try {
@@ -63,8 +67,8 @@ export async function POST(req) {
           throw new Error(`النوع "${type}" غير معروف.`);
         }
 
-        // Check or create company
-        let companyDoc = await Company.findOne({ name: company }).session(session);
+        // Check company existence
+        const companyDoc = await Company.findOne({ name: company }).session(session);
         if (!companyDoc) {
           throw new Error(`الشركة "${company}" غير موجودة. يرجى إنشاؤها أولاً.`);
         }
@@ -76,6 +80,16 @@ export async function POST(req) {
           unitConversion !== null && unitConversion !== undefined
             ? Number(unitConversion)
             : null;
+
+        if (isNaN(parsedPurchasePrice) || parsedPurchasePrice < 0) {
+          throw new Error(`سعر الشراء غير صحيح للمنتج "${name}".`);
+        }
+        if (isNaN(parsedSalePrice) || parsedSalePrice < 0) {
+          throw new Error(`سعر البيع غير صحيح للمنتج "${name}".`);
+        }
+        if (isNaN(parsedQuantity) || parsedQuantity <= 0) {
+          throw new Error(`الكمية غير صحيحة للمنتج "${name}".`);
+        }
 
         const hasMultipleUnits = allowedUnits.length === 2;
         const latestUnit = allowedUnits.at(-1);
@@ -148,7 +162,6 @@ export async function POST(req) {
       }
 
       await session.commitTransaction();
-      session.endSession();
 
       return NextResponse.json({
         message: "تم إنشاء جميع المنتجات وتسجيل المصروف كمجموعة واحدة",
@@ -157,13 +170,21 @@ export async function POST(req) {
 
     } catch (innerError) {
       await session.abortTransaction();
-      session.endSession();
+      console.error("Transaction error:", innerError);
       return NextResponse.json({ error: innerError.message }, { status: 400 });
     }
 
   } catch (error) {
     console.error("POST error:", error);
     return NextResponse.json({ error: "خطأ في الخادم" }, { status: 500 });
+  } finally {
+    if (session) {
+      try {
+        await session.endSession();
+      } catch (e) {
+        console.warn("Failed to end session:", e);
+      }
+    }
   }
 }
 
@@ -178,8 +199,8 @@ export async function GET(req) {
     const Product = getProductModel(conn);
 
     const products = await Product.find({}).sort({ name: 1 }).lean();
-
     return NextResponse.json(products);
+
   } catch (error) {
     console.error("GET error:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });

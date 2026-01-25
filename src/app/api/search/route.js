@@ -5,7 +5,6 @@ import { verifyToken } from "@/app/lib/verifyToken";
 
 export async function GET(req) {
   try {
-    // Authenticate to get pharmacyId
     const user = verifyToken(req.headers);
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -20,9 +19,9 @@ export async function GET(req) {
 
     if (query) {
       filter.$or = [
-        { name: { $regex: query, $options: 'i' } },
-        { barcode: { $regex: query, $options: 'i' } },
-        { barcodes: { $regex: query, $options: 'i' } }
+        { name: { $regex: query, $options: "i" } },
+        { barcode: query },            // exact match
+        { barcodes: query }            // exact match in array
       ];
     }
 

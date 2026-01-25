@@ -5,12 +5,12 @@ import { typesWithUnits } from "@/app/lib/unitOptions";
 import { getSetting } from "@/app/lib/getSetting";
 import { getProductModel } from "@/app/lib/models/Product";
 import { getWinningModel } from "@/app/lib/models/Winning";
-import mongoose from "mongoose";
 
 export async function GET(request) {
   try {
     const user = verifyToken(request.headers);
-    if (!user) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
+    if (!user)
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const conn = await getDb(user.pharmacyId);
     const Product = getProductModel(conn);
@@ -32,7 +32,7 @@ export async function GET(request) {
       unitOptions: typesWithUnits[p.type] || ["علبة"],
     }));
 
-    // Add "agel" (non-product item)
+    // Add "agel" non-product item
     treatments.push({
       _id: "agel",
       name: "إيداع مال من منتج غير محدد",
@@ -51,35 +51,41 @@ export async function GET(request) {
     return NextResponse.json({ treatments }, { status: 200 });
   } catch (error) {
     console.error("GET /api/checkout error:", error);
-    return NextResponse.json({ error: "خطأ في الخادم" }, { status: 500 });
+    return NextResponse.json(
+      { error: "خطأ في الخادم أثناء جلب المنتجات" },
+      { status: 500 }
+    );
   }
 }
 
 export async function POST(req) {
   try {
     const user = verifyToken(req.headers);
-    if (!user) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
+    if (!user)
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const conn = await getDb(user.pharmacyId);
     const Product = getProductModel(conn);
     const Winning = getWinningModel(conn);
 
     const body = await req.json();
+    const items = body?.items;
 
-    if (!body || !Array.isArray(body.items)) {
-      return NextResponse.json({ error: "الطلب غير صالح" }, { status: 400 });
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return NextResponse.json(
+        { error: "الطلب غير صالح أو لا يحتوي على منتجات" },
+        { status: 400 }
+      );
     }
 
-    const items = body.items;
-    if (items.length === 0) {
-      return NextResponse.json({ error: "يجب إدخال منتجات" }, { status: 400 });
-    }
-
-    // Check for duplicate product IDs in the request
-    const ids = items.map(i => i._id);
+    // Detect duplicates
+    const ids = items.map((i) => i._id);
     const duplicates = ids.filter((id, idx) => ids.indexOf(id) !== idx);
     if (duplicates.length > 0) {
-      return NextResponse.json({ error: "لا يمكن تكرار نفس المنتج في نفس الطلب" }, { status: 400 });
+      return NextResponse.json(
+        { error: "لا يمكن تكرار نفس المنتج في نفس الطلب" },
+        { status: 400 }
+      );
     }
 
     const now = new Date();
@@ -95,87 +101,104 @@ export async function POST(req) {
         const { _id, name, unit, quantity } = item;
 
         if (!_id || !name || !unit || quantity == null) {
-          throw new Error(`البيانات ناقصة في أحد العناصر`);
+          throw new Error(`البيانات ناقصة في أحد المنتجات`);
         }
 
         if (typeof quantity !== "number" || isNaN(quantity) || quantity <= 0) {
           throw new Error(`الكمية غير صالحة للمنتج "${name}"`);
         }
 
-        // Handle "agel" deposit case
+        // "agel" special case
         if (_id === "agel") {
           totalSaleAmount += quantity;
           reasons.push(`إيداع مبلغ ${quantity} جنيه`);
           continue;
         }
 
-        // Find product by id
         const product = await Product.findById(_id).session(session);
-
         if (!product) {
           throw new Error(`المنتج "${name}" غير موجود`);
         }
 
-        // Validate stock
+        // Check expiry
         if (product.expiryDate && new Date(product.expiryDate) < now) {
-          expiredItems.push(name);
+          expiredItems.push(product.name);
           continue;
         }
 
-        let quantityToDecrement = quantity;
-        const isDifferentUnit = unit !== product.unit;
-        const conversion = product.unitConversion || 1;
+        let qtyToDecrement = unit !== product.unit ? quantity / (product.unitConversion || 1) : quantity;
 
-        if (isDifferentUnit) {
-          quantityToDecrement = quantity / conversion;
+        if (qtyToDecrement > product.quantity) {
+          throw new Error(
+            `الكمية المطلوبة (${qtyToDecrement}) أكبر من المتوفرة (${product.quantity}) للمنتج "${product.name}"`
+          );
         }
 
-        if (quantityToDecrement > product.quantity) {
-          throw new Error(`الكمية المطلوبة (${quantityToDecrement}) أكبر من المتوفرة (${product.quantity}) للمنتج "${product.name}"`);
-        }
+        totalSaleAmount += qtyToDecrement * (product.price || 0);
 
-        const saleAmount = quantityToDecrement * (product.price || 0);
-        totalSaleAmount += saleAmount;
-
-        product.quantity -= quantityToDecrement;
-        const threshold = await getSetting(conn, 'lowStockThreshold', 5);
+        product.quantity -= qtyToDecrement;
+        const threshold = await getSetting(conn, "lowStockThreshold", 5);
         product.isShortcoming = product.quantity < threshold;
 
         await product.save({ session });
-
         reasons.push(`${quantity} ${unit} ${product.name}`);
       }
 
       if (expiredItems.length > 0) {
-        throw new Error(`بعض المنتجات منتهية الصلاحية: ${expiredItems.join(', ')}`);
+        throw new Error(`بعض المنتجات منتهية الصلاحية: ${expiredItems.join(", ")}`);
       }
 
       const isSadaqah = body.isSadaqah === true;
-      if (totalSaleAmount > 0 || isSadaqah) {
-        await Winning.create([{
-          amount: isSadaqah ? 0 : totalSaleAmount,
-          reason: (isSadaqah ? "صدقة: " : "") + reasons.join(" و "),
-          transactionType: 'in',
-          date: new Date()
-        }], { session });
+
+      // ✅ UPDATED HERE
+      if (isSadaqah) {
+        await Winning.create(
+          [
+            {
+              amount: totalSaleAmount,
+              reason: "صدقة: " + reasons.join(" و "),
+              transactionType: "sadaqah",
+              date: new Date(),
+            },
+          ],
+          { session }
+        );
+      } else if (totalSaleAmount > 0) {
+        await Winning.create(
+          [
+            {
+              amount: totalSaleAmount,
+              reason: reasons.join(" و "),
+              transactionType: "in",
+              date: new Date(),
+            },
+          ],
+          { session }
+        );
       }
 
       await session.commitTransaction();
       session.endSession();
 
-      return NextResponse.json({
-        success: true,
-        message: "تم حفظ الطلب وتحديث الكمية وتسجيل الدخل بنجاح",
-      }, { status: 201 });
-
+      return NextResponse.json(
+        {
+          success: true,
+          message: "تم حفظ الطلب وتحديث الكمية وتسجيل الدخل بنجاح",
+          totalAmount: totalSaleAmount,
+          itemsProcessed: items.length,
+        },
+        { status: 201 }
+      );
     } catch (innerError) {
       await session.abortTransaction();
       session.endSession();
       return NextResponse.json({ error: innerError.message }, { status: 400 });
     }
-
   } catch (error) {
     console.error("POST /api/checkout error:", error);
-    return NextResponse.json({ error: "حدث خطأ أثناء الحفظ" }, { status: 500 });
+    return NextResponse.json(
+      { error: "حدث خطأ أثناء حفظ الطلب" },
+      { status: 500 }
+    );
   }
 }

@@ -25,8 +25,7 @@ const CheckoutPage = () => {
 
   const [showSearch, setShowSearch] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
-
-  // Selection state for ProductSelectDialog
+  const [pharmacyInfo, setPharmacyInfo] = useState(null);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [tempQuantity, setTempQuantity] = useState(1);
   const [tempUnit, setTempUnit] = useState("علبة");
@@ -39,16 +38,9 @@ const CheckoutPage = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [barcodeNotFound, setBarcodeNotFound] = useState(null);
 
-  // Success Notification
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState("تمت عملية البيع بنجاح ✅");
 
-  // Receipt State (still used for debt success but will be disabled there too)
-  const [showReceipt, setShowReceipt] = useState(false);
-  const [lastOrder, setLastOrder] = useState({ items: [], total: 0 });
-  const [pharmacyInfo, setPharmacyInfo] = useState({});
-
-  // Confirmation State
   const [showConfirm, setShowConfirm] = useState(false);
   const [isPendingSadaqah, setIsPendingSadaqah] = useState(false);
   const [settingsOptions, setSettingsOptions] = useState({ showCheckoutConfirm: true });
@@ -61,7 +53,12 @@ const CheckoutPage = () => {
     if (options) setSettingsOptions(JSON.parse(options));
   }, []);
 
-  // Helper for resetting dependent state
+  // ✅ مهم: تحديث total تلقائيًا عند تغير items
+  useEffect(() => {
+    const newTotal = items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+    setTotal(newTotal);
+  }, [items, setTotal]);
+
   const resetSelection = () => {
     setSelectedProduct(null);
     setTempQuantity(1);
@@ -70,7 +67,6 @@ const CheckoutPage = () => {
     setVariants([]);
   };
 
-  // Main Logic for Adding Product (from Dialog)
   const handleAddProduct = () => {
     if (!selectedProduct) return;
 
@@ -83,7 +79,6 @@ const CheckoutPage = () => {
     const conversion = Number(selectedProduct.unitConversion || 1);
     const soldInBoxes = tempUnit === "شريط" ? qty / conversion : qty;
 
-    // Calculate remaining for UI snapshot (optional, can relay on setProducts update)
     const originalQty = Number(selectedProduct.quantity || 0);
     const remaining = Math.max(0, originalQty - soldInBoxes);
 
@@ -101,17 +96,13 @@ const CheckoutPage = () => {
     };
 
     addItem(newItem);
-
-    // Update stock in products list
     decreaseStock(selectedProduct, soldInBoxes);
 
     resetSelection();
     setShowSearch(false);
   };
 
-  // Barcode Scan Logic
   const handleScan = useCallback((scanned) => {
-    console.log(`scanned is ${scanned}`);
     const matchingVariants = products.filter(
       (p) => p.barcode?.toString() === scanned
     );
@@ -122,12 +113,8 @@ const CheckoutPage = () => {
     }
 
     const earliest = [...matchingVariants].sort((a, b) => {
-      const dateA = a.expiryDate
-        ? new Date(a.expiryDate)
-        : new Date(8640000000000000);
-      const dateB = b.expiryDate
-        ? new Date(b.expiryDate)
-        : new Date(8640000000000000);
+      const dateA = a.expiryDate ? new Date(a.expiryDate) : new Date(8640000000000000);
+      const dateB = b.expiryDate ? new Date(b.expiryDate) : new Date(8640000000000000);
       return dateA - dateB;
     })[0];
 
@@ -151,9 +138,7 @@ const CheckoutPage = () => {
       quantity: qty,
       unit: tempUnit,
       total: price * qty,
-      expiry: earliest.expiryDate
-        ? new Date(earliest.expiryDate).toISOString()
-        : null,
+      expiry: earliest.expiryDate ? new Date(earliest.expiryDate).toISOString() : null,
       unitOptions: earliest.unitOptions || [earliest.unit],
       fullProduct: earliest,
       remaining,
@@ -164,7 +149,6 @@ const CheckoutPage = () => {
 
   }, [products, addItem, decreaseStock]);
 
-
   const handleDeleteItem = (index) => {
     const removedItem = removeItem(index);
     if (removedItem) {
@@ -172,15 +156,13 @@ const CheckoutPage = () => {
       const unitConversion = Number(fullProduct.unitConversion || 1);
       const productBaseUnit = fullProduct.unit;
 
-      // Convert back to base unit if necessary (amount to restore)
-      let restoreQty = unit === "شريط" && unit !== productBaseUnit
+      let restoreQty = unit === "شريط" && productBaseUnit !== "شريط"
         ? quantity / unitConversion
         : quantity;
 
       restoreStock(_id, expiry, unit, restoreQty);
     }
   };
-
 
   const handleCheckoutClick = (isSadaqah) => {
     if (settingsOptions.showCheckoutConfirm) {
@@ -198,9 +180,7 @@ const CheckoutPage = () => {
         "/api/checkout",
         { items, isSadaqah },
         {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { Authorization: `Bearer ${token}` },
           validateStatus: () => true,
         }
       );
@@ -215,7 +195,6 @@ const CheckoutPage = () => {
         return;
       }
 
-      // Success - Show notification instead of receipt
       setSuccessMessage("تمت عملية البيع بنجاح ✅");
       setShowSuccess(true);
       clearCart();
@@ -232,7 +211,6 @@ const CheckoutPage = () => {
     }
   };
 
-  // Logic for Product Select Dialog initialization
   useEffect(() => {
     if (showSearch) {
       setSearchResults(products);
@@ -258,7 +236,6 @@ const CheckoutPage = () => {
     }
   }, [showSearch, products]);
 
-  // Logic for Auto-Selecting Earliest Expiry in Dialog
   useEffect(() => {
     if (variants.length > 0) {
       const earliest = [...variants].sort(
@@ -270,7 +247,6 @@ const CheckoutPage = () => {
       setTempQuantity(1);
     }
   }, [variants]);
-
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 8, flexGrow: 1, overflow: "unset" }}>
@@ -325,7 +301,7 @@ const CheckoutPage = () => {
                   fontSize: "1.2rem",
                   borderRadius: "12px",
                   fontWeight: 700,
-                  bgcolor: '#673ab7', // Deep Purple for Sadaqah
+                  bgcolor: '#673ab7',
                   boxShadow: '0 4px 14px 0 rgba(103,58,183,0.39)',
                   transition: "0.3s",
                   "&:hover": { bgcolor: "#5e35b1", transform: "translateY(-2px)" },

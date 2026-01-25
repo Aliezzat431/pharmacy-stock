@@ -1,4 +1,4 @@
-"use client";
+ "use client";
 import React, { useState, useEffect } from "react";
 import {
   Container,
@@ -20,7 +20,6 @@ import {
   Box,
   MenuItem,
   Select,
-  TableFooter,
   IconButton,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -109,17 +108,17 @@ const ReturnsPage = () => {
 
   const calculateUnitPrice = (product, unit) => {
     if (!product) return 0;
-    if (
-      unit !== product.unit &&
-      product.unitConversion &&
-      product.unitConversion[unit]
-    ) {
-      return product.price / product.unitConversion[unit];
+
+    const baseUnit = product.unit;
+    const conversion = Number(product.unitConversion || 1);
+
+    if (unit !== baseUnit && conversion > 0) {
+      return product.price / conversion;
     }
+
     return product.price;
   };
 
-  // FIXED: now replaces quantity instead of adding on top of already updated value
   const handleAddProduct = () => {
     if (!selectedProduct) return;
     const unit = tempUnit || selectedProduct.unitOptions?.[0] || selectedProduct.unit;
@@ -129,7 +128,6 @@ const ReturnsPage = () => {
       const existingIndex = prev.findIndex((i) => i._id === selectedProduct._id && i.unit === unit);
 
       if (existingIndex !== -1) {
-        // update quantity to the new value instead of adding
         const updated = [...prev];
         updated[existingIndex].quantity = tempQuantity;
         updated[existingIndex].total = updated[existingIndex].quantity * updated[existingIndex].price;
@@ -223,124 +221,201 @@ const ReturnsPage = () => {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4, direction: 'rtl' }}>
+    <Container maxWidth="lg" sx={{ py: 4, direction: "rtl" }}>
       <BarcodeScanner
         onScan={(barcode) => {
-          const product = products.find((p) => p.barcode?.toString() === barcode);
+          const product = products.find(
+            (p) => p.barcode?.toString() === barcode
+          );
+
           if (!product) {
             alert(`🚫 لم يتم العثور على منتج بالباركود: ${barcode}`);
             return;
           }
+
           const expiry = new Date(product.expiryDate).setHours(0, 0, 0, 0);
           const today = new Date().setHours(0, 0, 0, 0);
+
           if (expiry <= today) {
-            const confirm = window.confirm("⚠️ هذا المنتج منتهي الصلاحية، هل تريد إضافته؟");
-            if (!confirm) return;
+            const confirmExpired = window.confirm(
+              "⚠️ هذا المنتج منتهي الصلاحية، هل تريد إضافته؟"
+            );
+            if (!confirmExpired) return;
           }
 
           const unit = product.unitOptions?.[0] || product.unit;
           const price = calculateUnitPrice(product, unit);
 
           setItems((prev) => {
-            const existingIndex = prev.findIndex((i) => i._id === product._id && i.unit === unit);
+            const existingIndex = prev.findIndex(
+              (i) => i._id === product._id && i.unit === unit
+            );
 
+            // لو المنتج موجود قبل كده
             if (existingIndex !== -1) {
               const updated = [...prev];
               updated[existingIndex].quantity += 1;
-              updated[existingIndex].total = updated[existingIndex].quantity * updated[existingIndex].price;
-              setTotal(updated.reduce((sum, i) => sum + i.total, 0));
+              updated[existingIndex].total =
+                updated[existingIndex].quantity * updated[existingIndex].price;
+
+              setTotal(
+                updated.reduce((sum, i) => sum + i.total, 0)
+              );
+
               return updated;
-            } else {
-              const next = [
-                ...prev,
-                {
-                  _id: product._id,
-                  name: product.name,
-                  price,
-                  quantity: 1,
-                  unit,
-                  unitOptions: product.unitOptions || [product.unit],
-                  expiryDate: product.expiryDate,
-                  total: price * 1,
-                  fullProduct: product,
-                  isShortcoming: product.isShortcoming,
-                },
-              ];
-              setTotal(next.reduce((sum, i) => sum + i.total, 0));
-              return next;
             }
+
+            // لو منتج جديد
+            const next = [
+              ...prev,
+              {
+                _id: product._id,
+                name: product.name,
+                price,
+                quantity: 1,
+                unit,
+                unitOptions: product.unitOptions || [product.unit],
+                expiryDate: product.expiryDate,
+                total: price,
+                fullProduct: product,
+                isShortcoming: product.isShortcoming,
+              },
+            ];
+
+            setTotal(
+              next.reduce((sum, i) => sum + i.total, 0)
+            );
+
+            return next;
           });
         }}
       />
 
-      {/* Header & Stats */}
-      <Box sx={{ mb: 4, display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Typography variant="h4" sx={{ fontWeight: 800, color: 'var(--primary)', letterSpacing: '-0.5px' }}>
-            🔄 مرتجع مبيعات
-          </Typography>
-        </Box>
+      <Box
+        sx={{
+          mb: 4,
+          display: "flex",
+          flexWrap: "wrap",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 3,
+        }}
+      >
+        <Typography
+          variant="h4"
+          sx={{
+            fontWeight: 900,
+            color: "var(--primary)",
+            letterSpacing: "-0.5px",
+          }}
+        >
+          🔄 مرتجع مبيعات
+        </Typography>
 
-        <Box className="glass-card" sx={{ px: 4, py: 2, display: 'flex', alignItems: 'center', gap: 4, bgcolor: 'var(--glass-bg)' }}>
+        {/* ===== Stats + Save ===== */}
+        <Box
+          className="glass-card"
+          sx={{
+            px: 4,
+            py: 2,
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            borderRadius: 3,
+          }}
+        >
           <Box>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700, display: 'block' }}>إجمالي المرتجع</Typography>
-            <Typography variant="h5" sx={{ fontWeight: 800, color: 'var(--secondary)' }}>
+            <Typography
+              variant="caption"
+              sx={{ fontWeight: 700, color: "text.secondary" }}
+            >
+              إجمالي المرتجع
+            </Typography>
+            <Typography
+              variant="h5"
+              sx={{ fontWeight: 900, color: "var(--secondary)" }}
+            >
               {total.toLocaleString()} ج.م
             </Typography>
           </Box>
+
+          {/* Stylish Save Button */}
           <Button
-            variant="contained"
-            color="error"
             onClick={() => setShowConfirmPopup(true)}
             disabled={items.length === 0}
-            sx={{ borderRadius: '12px', px: 3, fontWeight: 700, height: 45 }}
+            sx={{
+              px: 4,
+              height: 48,
+              borderRadius: "14px",
+              fontWeight: 800,
+              color: "#fff",
+              background:
+                "linear-gradient(135deg, #e53935, #ff7043)",
+              boxShadow: "0 10px 25px rgba(229,57,53,0.35)",
+              transition: "all 0.25s ease",
+              "&:hover": {
+                transform: "translateY(-2px) scale(1.03)",
+                boxShadow: "0 14px 30px rgba(229,57,53,0.45)",
+              },
+              "&.Mui-disabled": {
+                background: "rgba(0,0,0,0.2)",
+                boxShadow: "none",
+              },
+            }}
           >
-            حفظ المرتجع
+            💾 حفظ المرتجع
           </Button>
         </Box>
       </Box>
 
-      <Snackbar open={!!successMessage} autoHideDuration={4000} onClose={() => setSuccessMessage("")}>
-        <Alert onClose={() => setSuccessMessage("")} severity="success" sx={{ width: '100%' }}>
-          {successMessage}
-        </Alert>
-      </Snackbar>
-
-      <Paper className="glass-card" sx={{ overflow: 'hidden', border: '1px solid var(--glass-border)' }}>
-        <TableContainer sx={{ maxHeight: '60vh' }}>
+      {/* ===== Table ===== */}
+      <Paper className="glass-card" sx={{ overflow: "hidden", borderRadius: 3 }}>
+        <TableContainer sx={{ maxHeight: "60vh" }}>
           <Table className="modern-table" stickyHeader>
             <TableHead>
               <TableRow>
-                <TableCell sx={{ fontWeight: 800 }}>المنتج</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 800 }}>السعر</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 800 }}>الكمية</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 800 }}>الوحدة</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 800 }}>المتبقي (بعد الرد)</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 800 }}>الصلاحية</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 800 }}>الإجمالي</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 800 }}>إجراءات</TableCell>
+                {[
+                  "المنتج",
+                  "السعر",
+                  "الكمية",
+                  "الوحدة",
+                  "المتبقي",
+                  "الصلاحية",
+                  "الإجمالي",
+                  "إجراءات",
+                ].map((h) => (
+                  <TableCell key={h} align="center" sx={{ fontWeight: 800 }}>
+                    {h}
+                  </TableCell>
+                ))}
               </TableRow>
             </TableHead>
+
             <TableBody>
               {items.map((it, idx) => (
                 <TableRow key={idx} hover>
                   <TableCell sx={{ fontWeight: 700 }}>{it.name}</TableCell>
-                  <TableCell align="center">{it.price.toLocaleString()} ج.م</TableCell>
+                  <TableCell align="center">{it.price} ج.م</TableCell>
+
                   <TableCell align="center">
                     <TextField
                       type="number"
                       size="small"
                       value={it.quantity}
-                      onChange={(e) => handleFieldChange(idx, "quantity", e.target.value)}
-                      sx={{ width: 80, '& input': { textAlign: 'center', fontWeight: 700 } }}
+                      onChange={(e) =>
+                        handleFieldChange(idx, "quantity", e.target.value)
+                      }
+                      sx={{ width: 90 }}
                     />
                   </TableCell>
+
                   <TableCell align="center">
                     <Select
                       size="small"
                       value={it.unit}
-                      onChange={(e) => handleFieldChange(idx, "unit", e.target.value)}
-                      sx={{ minWidth: 100, fontWeight: 600 }}
+                      onChange={(e) =>
+                        handleFieldChange(idx, "unit", e.target.value)
+                      }
                     >
                       {it.unitOptions.map((u) => (
                         <MenuItem key={u} value={u}>
@@ -349,105 +424,115 @@ const ReturnsPage = () => {
                       ))}
                     </Select>
                   </TableCell>
+
                   <TableCell align="center">
-                    <Box sx={{ px: 1.5, py: 0.5, borderRadius: 1, bgcolor: 'rgba(var(--primary-rgb), 0.05)', display: 'inline-block', fontWeight: 600 }}>
+                    <Box
+                      sx={{
+                        px: 2,
+                        py: 0.6,
+                        borderRadius: 2,
+                        bgcolor: "rgba(0,0,0,0.05)",
+                        fontWeight: 700,
+                      }}
+                    >
                       {calculateRemaining(it.fullProduct, it.quantity, it.unit)}
                     </Box>
                   </TableCell>
+
                   <TableCell align="center">
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.secondary' }}>
-                      {it.expiryDate ? new Date(it.expiryDate).toLocaleDateString("ar-EG") : "—"}
-                    </Typography>
+                    {it.expiryDate
+                      ? new Date(it.expiryDate).toLocaleDateString("ar-EG")
+                      : "—"}
                   </TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 800, color: 'var(--primary)' }}>
-                    {it.total.toLocaleString()} ج.م
+
+                  <TableCell
+                    align="center"
+                    sx={{ fontWeight: 900, color: "var(--primary)" }}
+                  >
+                    {it.total} ج.م
                   </TableCell>
+
                   <TableCell align="center">
-                    <IconButton color="error" onClick={() => requestDeleteItem(idx)} size="small">
+                    <IconButton
+                      color="error"
+                      onClick={() => requestDeleteItem(idx)}
+                    >
                       <DeleteIcon />
                     </IconButton>
                   </TableCell>
                 </TableRow>
               ))}
 
-              {items.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 8 }}>
-                    <Box sx={{ opacity: 0.5 }}>
-                      <Typography variant="h6">لا توجد منتجات في قائمة المرتجع</Typography>
-                      <Typography variant="body2">قم بمسح الباركود أو الضغط على زر إضافة منتج بالأسفل</Typography>
+              {/* ===== Add Product Button ===== */}
+              <TableRow>
+                <TableCell colSpan={8} align="center" sx={{ py: 6 }}>
+                  <Box
+                    onClick={() => setShowSearch(true)}
+                    sx={{
+                      px: 5,
+                      py: 1.8,
+                      borderRadius: "999px",
+                      fontWeight: 800,
+                      color: "#fff",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 1.2,
+                      cursor: "pointer",
+                      background:
+                        "linear-gradient(135deg, rgba(0,137,123,0.95), rgba(38,166,154,0.9))",
+                      boxShadow:
+                        "0 12px 35px rgba(0,137,123,0.4)",
+                      transition: "all 0.25s ease",
+                      "&:hover": {
+                        transform: "translateY(-3px) scale(1.04)",
+                        boxShadow:
+                          "0 18px 45px rgba(0,137,123,0.5)",
+                      },
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: "50%",
+                        bgcolor: "rgba(255,255,255,0.25)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      ➕
                     </Box>
-                  </TableCell>
-                </TableRow>
-              )}
+                    إضافة منتج يدويًا
+                  </Box>
+                </TableCell>
+              </TableRow>
             </TableBody>
           </Table>
         </TableContainer>
-
-        <Box
-          onClick={() => setShowSearch(true)}
-          sx={{
-            p: 2,
-            textAlign: 'center',
-            cursor: 'pointer',
-            borderTop: '1px solid var(--glass-border)',
-            bgcolor: 'var(--primary)',
-            color: 'white',
-            transition: 'all 0.2s',
-            '&:hover': { bgcolor: 'var(--secondary)', opacity: 0.9 },
-            fontWeight: 800,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 1
-          }}
-        >
-          <span>➕</span> إضافة منتج يدوياً
-        </Box>
       </Paper>
+     <ProductSelectDialog
+  open={showSearch}
+  onClose={() => setShowSearch(false)}
+  products={products}
+  searchResults={searchResults}
+  setSearchResults={setSearchResults}
+  selectedProduct={selectedProduct}
+  setSelectedProduct={setSelectedProduct}
+  tempQuantity={tempQuantity}
+  setTempQuantity={setTempQuantity}
+  tempUnit={tempUnit}
+  setTempUnit={setTempUnit}
+  tempExpiry={tempExpiry}
+  setTempExpiry={setTempExpiry}
+  variants={variants}
+  setVariants={setVariants}
+  handleAddProduct={handleAddProduct}
+/>
 
-      <ProductSelectDialog
-        open={showSearch}
-        onClose={() => setShowSearch(false)}
-        products={products}
-        searchResults={searchResults}
-        setSearchResults={setSearchResults}
-        selectedProduct={selectedProduct}
-        setSelectedProduct={setSelectedProduct}
-        tempSelections={tempSelections}
-        tempQuantity={tempQuantity}
-        setTempQuantity={setTempQuantity}
-        tempUnit={tempUnit}
-        setTempUnit={setTempUnit}
-        tempExpiry={tempExpiry}
-        setTempExpiry={setTempExpiry}
-        variants={variants}
-        setVariants={setVariants}
-        handleAddProduct={handleAddProduct}
-      />
 
-      {/* Save Confirmation */}
-      <Dialog open={showConfirmPopup} onClose={() => setShowConfirmPopup(false)}>
-        <DialogTitle>هل تريد حفظ المرتجع؟</DialogTitle>
-        <DialogActions>
-          <Button color="error" onClick={doSave}>
-            نعم
-          </Button>
-          <Button onClick={() => setShowConfirmPopup(false)}>إلغاء</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Delete Confirmation */}
-      <Dialog open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)}>
-        <DialogTitle>هل أنت متأكد أنك تريد حذف هذا المنتج؟</DialogTitle>
-        <DialogActions>
-          <Button color="error" onClick={() => handleDeleteItem(productToDelete)}>
-            حذف
-          </Button>
-          <Button onClick={() => setDeleteConfirmOpen(false)}>إلغاء</Button>
-        </DialogActions>
-      </Dialog>
     </Container>
+
   );
 };
 

@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
@@ -25,16 +25,22 @@ import {
   Chip,
   CircularProgress,
   Paper,
+  Snackbar,
+  Alert,
 } from '@mui/material';
 
 ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend);
-
-const BASE_CAPITAL = 100000;
 
 const Dashboard = () => {
   const [data, setData] = useState([]);
   const [aiReport, setAiReport] = useState("");
   const [loadingAi, setLoadingAi] = useState(false);
+  const [settling, setSettling] = useState(false);
+
+  // 👇 states for popups
+  const [snackOpen, setSnackOpen] = useState(false);
+  const [snackMsg, setSnackMsg] = useState("");
+  const [snackSeverity, setSnackSeverity] = useState("success");
 
   useEffect(() => {
     const fetchWinnings = async () => {
@@ -51,6 +57,12 @@ const Dashboard = () => {
     fetchWinnings();
   }, []);
 
+  const showSnack = (msg, severity = "success") => {
+    setSnackMsg(msg);
+    setSnackSeverity(severity);
+    setSnackOpen(true);
+  };
+
   const generateAiReport = async () => {
     setLoadingAi(true);
     try {
@@ -59,11 +71,41 @@ const Dashboard = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       setAiReport(res.data.report);
+      showSnack("تم توليد التقرير بنجاح ✅", "success");
     } catch (err) {
       console.error("AI Report failed:", err);
       setAiReport("عذراً، فشل في توليد التقرير حالياً. يرجى المحاولة لاحقاً.");
+      showSnack("فشل توليد التقرير ❌", "error");
     } finally {
       setLoadingAi(false);
+    }
+  };
+
+  // زر تسديد الصدقات آخر الشهر
+  const settleSadaqah = async () => {
+    setSettling(true);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await axios.post('/api/settle-sadaqah', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (res.data.success) {
+        showSnack(res.data.message, "success");
+
+        // Refresh data
+        const refreshed = await axios.get('/api/winnings', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setData(refreshed.data);
+      } else {
+        showSnack(res.data.message || "حدث خطأ", "error");
+      }
+    } catch (err) {
+      console.error(err);
+      showSnack("حدث خطأ أثناء التسديد ❌", "error");
+    } finally {
+      setSettling(false);
     }
   };
 
@@ -81,6 +123,11 @@ const Dashboard = () => {
         backgroundColor: '#d32f2f',
       },
       {
+        label: 'الصدقات',
+        data: data.map((day) => day.totalSadaqah || 0),
+        backgroundColor: '#1976d2',
+      },
+      {
         label: 'معلق',
         data: data.map((day) => day.totalSuspended || 0),
         backgroundColor: '#ed6c02',
@@ -91,6 +138,8 @@ const Dashboard = () => {
   const formatType = (type) => {
     if (type === 'in') return 'إيداع';
     if (type === 'out') return 'دفع';
+    if (type === 'sadaqah') return 'صدقة';
+    if (type === 'sadaqahPaid') return 'تسديد صدقات';
     return 'معلّق';
   };
 
@@ -107,7 +156,7 @@ const Dashboard = () => {
             <Box>
               <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>رأس المال الأساسي</Typography>
               <Typography variant="h6" sx={{ color: 'var(--primary)', fontWeight: 700 }}>
-                {BASE_CAPITAL.toLocaleString()} ج.م
+                {data[0]?.baseCapital?.toLocaleString() || 100000} ج.م
               </Typography>
             </Box>
             <Divider orientation="vertical" flexItem />
@@ -168,6 +217,19 @@ const Dashboard = () => {
         )}
       </Box>
 
+      {/* زر تسديد الصدقات */}
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <Button
+          variant="contained"
+          color="secondary"
+          onClick={settleSadaqah}
+          disabled={settling || data.length === 0}
+          sx={{ fontWeight: 700 }}
+        >
+          {settling ? <CircularProgress size={24} color="inherit" /> : "تسديد الصدقات الغير مدفوعة"}
+        </Button>
+      </Box>
+
       {/* Daily Logs */}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <Typography variant="h5" sx={{ fontWeight: 700, color: 'var(--primary)', mt: 2 }}>📅 السجلات اليومية</Typography>
@@ -179,6 +241,7 @@ const Dashboard = () => {
               <Box sx={{ display: 'flex', gap: 2 }}>
                 <Chip label={`↑ ${day.totalIn}`} color="success" size="small" sx={{ fontWeight: 700 }} />
                 <Chip label={`↓ ${day.totalOut}`} color="error" size="small" sx={{ fontWeight: 700 }} />
+                <Chip label={`💛 ${day.totalSadaqah || 0}`} size="small" sx={{ fontWeight: 700, bgcolor: 'rgba(25, 118, 210, 0.1)', color: '#1976d2' }} />
               </Box>
             </Box>
 
@@ -200,9 +263,13 @@ const Dashboard = () => {
                         <Box sx={{
                           px: 2, py: 0.5, borderRadius: '8px', display: 'inline-block',
                           bgcolor: order.type === 'in' ? 'rgba(76, 175, 80, 0.1)' :
-                            order.type === 'out' ? 'rgba(244, 67, 54, 0.1)' : 'rgba(255, 193, 7, 0.1)',
+                            order.type === 'out' ? 'rgba(244, 67, 54, 0.1)' :
+                            order.type === 'sadaqah' ? 'rgba(25, 118, 210, 0.1)' :
+                            'rgba(156, 39, 176, 0.1)',
                           color: order.type === 'in' ? '#2e7d32' :
-                            order.type === 'out' ? '#d32f2f' : '#ed6c02',
+                            order.type === 'out' ? '#d32f2f' :
+                            order.type === 'sadaqah' ? '#1976d2' :
+                            '#7b1fa2',
                           fontWeight: 700, fontSize: '0.75rem'
                         }}>
                           {formatType(order.type)}
@@ -216,6 +283,18 @@ const Dashboard = () => {
           </Box>
         ))}
       </Box>
+
+      {/* Snackbar */}
+      <Snackbar
+        open={snackOpen}
+        autoHideDuration={3000}
+        onClose={() => setSnackOpen(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={() => setSnackOpen(false)} severity={snackSeverity} variant="filled" sx={{ width: '100%', fontWeight: 700 }}>
+          {snackMsg}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

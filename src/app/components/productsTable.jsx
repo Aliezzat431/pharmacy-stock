@@ -1,13 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Paper, TextField, Select, MenuItem, IconButton, Box, Typography, Dialog, DialogActions, DialogContent, DialogTitle, Button
+  Paper, TextField, Select, MenuItem, IconButton, Box, Typography, Dialog, Button
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { typesWithUnits } from '../lib/unitOptions';
 
 const ProductsTable = ({ items, setItems, setShowSearch, setTotal, onDelete }) => {
-  const [selectedRow, setSelectedRow] = useState(0);
   const [deleteIndex, setDeleteIndex] = useState(null);
   const [dragOverRow, setDragOverRow] = useState(null);
 
@@ -29,16 +28,21 @@ const ProductsTable = ({ items, setItems, setShowSearch, setTotal, onDelete }) =
 
     const unitConversion = parseFloat(full.unitConversion ?? item.unitConversion ?? 1);
     const originalQuantity = parseFloat(full.quantity ?? item.quantity ?? 0);
+
     const [small, big] = knownUnits[type] || [];
     const conversions = small && big ? { [big]: 1, [small]: 1 / unitConversion } : { [unit]: 1 };
     const factor = conversions[unit] ?? 1;
+
     const sold = quantity * factor;
-    const remaining = Math.max(0, (originalQuantity - sold).toFixed(4));
+    const remainingQty = Math.max(0, originalQuantity - sold);
+
     const basePrice = parseFloat(full.price || 0);
     const unitPrice = unit === small && unitConversion > 0 ? basePrice / unitConversion : basePrice;
     const total = quantity * unitPrice;
 
-    return { ...item, total, remaining: `${remaining} ${big || unit}` };
+    const remaining = big ? `${remainingQty.toFixed(4)} ${big}` : `${remainingQty.toFixed(4)}`;
+
+    return { ...item, total, remaining };
   };
 
   const recalculateAllItemsAndTotal = (updatedItems) => {
@@ -48,11 +52,17 @@ const ProductsTable = ({ items, setItems, setShowSearch, setTotal, onDelete }) =
     setTotal(total);
   };
 
-  const handleQuantityChange = (index, newQuantity) => {
-    const updated = [...items];
-    updated[index] = { ...updated[index], quantity: newQuantity };
-    recalculateAllItemsAndTotal(updated);
-  };
+const handleQuantityChange = (index, newQuantity) => {
+  const qty = Number(newQuantity);
+
+  // منع القيم السالبة
+  if (qty < 0) return;
+
+  const updated = [...items];
+  updated[index] = { ...updated[index], quantity: qty };
+  recalculateAllItemsAndTotal(updated);
+};
+
 
   const handleUnitChange = (index, newUnit) => {
     const updated = [...items];
@@ -66,7 +76,7 @@ const ProductsTable = ({ items, setItems, setShowSearch, setTotal, onDelete }) =
   };
 
   const handleRowDragStart = (e, draggedIndex) => {
-    e.dataTransfer.setData("application/json", JSON.stringify({ ...items[draggedIndex], draggedIndex }));
+    e.dataTransfer.setData("application/json", JSON.stringify({ draggedIndex }));
   };
 
   const handleRowDragOver = (e, targetIndex) => {
@@ -89,8 +99,8 @@ const ProductsTable = ({ items, setItems, setShowSearch, setTotal, onDelete }) =
 
       const sameName = draggedItem.name === targetItem.name;
       const sameExpiry =
-        new Date(draggedItem.expiry).toISOString().slice(0, 10) ===
-        new Date(targetItem.expiry).toISOString().slice(0, 10);
+        (draggedItem.expiry ? new Date(draggedItem.expiry).toISOString().slice(0, 10) : "") ===
+        (targetItem.expiry ? new Date(targetItem.expiry).toISOString().slice(0, 10) : "");
 
       if (sameName && sameExpiry) {
         const targetConversion = parseFloat(targetItem.fullProduct?.unitConversion ?? targetItem.unitConversion ?? 1);
@@ -121,120 +131,255 @@ const ProductsTable = ({ items, setItems, setShowSearch, setTotal, onDelete }) =
     }
   };
 
-
   useEffect(() => {
     recalculateAllItemsAndTotal(items);
   }, []);
 
-  return (
-    <Box className="glass-card" sx={{ p: 3, mb: 4, mt: 2 }}>
-      <Typography variant="h5" sx={{ mb: 3, color: 'var(--primary)', fontWeight: 700 }}>
+return (
+  <Box className="glass-card" sx={{ p: 4, mb: 4, mt: 3 }}>
+    {/* ===== Header ===== */}
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        mb: 4,
+      }}
+    >
+      <Typography
+        variant="h5"
+        sx={{
+          fontWeight: 800,
+          color: 'var(--primary)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+        }}
+      >
         🧾 فاتورة المبيعات
       </Typography>
 
-      <TableContainer sx={{ maxHeight: 600 }}>
-        <Table stickyHeader className="modern-table">
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ fontWeight: 'bold' }}>المنتج</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>سعر الوحدة</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>الكمية</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>الوحدة</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>الصلاحية</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>المخزون</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>الإجمالي</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 'bold' }}>الإجراء</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {items.map((item, i) => {
-              const recalculated = recalculateItem(item);
-              const full = item.fullProduct || {};
-              const unitOptions =
-                item.unitOptions?.map((u) => typeof u === "string" ? u : u.value) ||
-                full.unitOptions?.map((u) => typeof u === "string" ? u : u.value) ||
-                (full.unit ? [full.unit] : []);
+      <Typography variant="body2" sx={{ opacity: 0.6 }}>
+        {items.length} منتجات
+      </Typography>
+    </Box>
 
-              return (
-                <TableRow
-                  key={i}
-                  draggable
-                  onDragStart={(e) => handleRowDragStart(e, i)}
-                  onDragOver={(e) => handleRowDragOver(e, i)}
-                  onDrop={(e) => handleRowDrop(e, i)}
+    {/* ===== Table ===== */}
+    <TableContainer
+      sx={{
+        maxHeight: 600,
+        borderRadius: 3,
+        overflow: 'hidden',
+      }}
+    >
+      <Table stickyHeader className="modern-table">
+        <TableHead>
+          <TableRow>
+            {[
+              'المنتج',
+              'سعر الوحدة',
+              'الكمية',
+              'الوحدة',
+              'الصلاحية',
+              'المخزون',
+              'الإجمالي',
+              'الإجراء',
+            ].map((h, i) => (
+              <TableCell
+                key={i}
+                align="center"
+                sx={{
+                  fontWeight: 700,
+                  letterSpacing: '0.3px',
+                }}
+              >
+                {h}
+              </TableCell>
+            ))}
+          </TableRow>
+        </TableHead>
+
+        <TableBody>
+          {items.map((item, i) => {
+            const full = item.fullProduct || {};
+            const unitOptions =
+              item.unitOptions?.map((u) => (typeof u === 'string' ? u : u.value)) ||
+              full.unitOptions?.map((u) => (typeof u === 'string' ? u : u.value)) ||
+              (full.unit ? [full.unit] : []);
+
+            const recalculated = recalculateItem(item);
+            const remainingNumber = parseFloat(recalculated.remaining);
+            const remainingColor =
+              !isNaN(remainingNumber) && remainingNumber < 5
+                ? 'error'
+                : 'text.secondary';
+
+            return (
+              <TableRow
+                key={i}
+                draggable
+                onDragStart={(e) => handleRowDragStart(e, i)}
+                onDragOver={(e) => handleRowDragOver(e, i)}
+                onDrop={(e) => handleRowDrop(e, i)}
+                sx={{
+                  bgcolor:
+                    dragOverRow === i
+                      ? 'rgba(0, 137, 123, 0.12)'
+                      : 'transparent',
+                  transition: 'all 0.2s ease',
+                  '&:hover': {
+                    bgcolor: 'rgba(0, 137, 123, 0.05)',
+                  },
+                  '& td': { border: 0 },
+                }}
+              >
+                <TableCell sx={{ fontWeight: 600 }}>
+                  {item.name}
+                </TableCell>
+
+                <TableCell sx={{ opacity: 0.8 }}>
+                  {(recalculated.total / (item.quantity || 1)).toFixed(2)}
+                </TableCell>
+
+                <TableCell>
+                  <TextField
+                    type="number"
+                    size="small"
+                    value={item.quantity}
+                    onChange={(e) =>
+                      handleQuantityChange(i, e.target.value)
+                    }
+                    sx={{
+                      width: 80,
+                      '& input': { textAlign: 'center' },
+                    }}
+                  />
+                </TableCell>
+
+                <TableCell>
+                  <Select
+                    size="small"
+                    value={item.unit}
+                    onChange={(e) =>
+                      handleUnitChange(i, e.target.value)
+                    }
+                    sx={{ minWidth: 90 }}
+                  >
+                    {unitOptions.map((u, idx) => (
+                      <MenuItem key={idx} value={u}>
+                        {u}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </TableCell>
+
+                <TableCell sx={{ fontSize: 13, opacity: 0.7 }}>
+                  {item.expiry
+                    ? new Date(item.expiry).toLocaleDateString('ar-EG')
+                    : '—'}
+                </TableCell>
+
+                <TableCell>
+                  <Typography
+                    variant="body2"
+                    color={remainingColor}
+                    sx={{ fontWeight: 600 }}
+                  >
+                    {recalculated.remaining}
+                  </Typography>
+                </TableCell>
+
+                <TableCell
                   sx={{
-                    bgcolor: dragOverRow === i ? 'rgba(0, 137, 123, 0.1)' : 'transparent',
-                    '& td': { border: 0 }
+                    fontWeight: 800,
+                    color: 'var(--primary)',
+                    fontSize: 15,
                   }}
                 >
-                  <TableCell sx={{ fontWeight: 500 }}>{item.name}</TableCell>
-                  <TableCell>
-                    {(parseFloat(item.total) / (item.quantity || 1)).toFixed(2)}
-                  </TableCell>
-                  <TableCell>
-                    <TextField
-                      type="number"
-                      size="small"
-                      value={item.quantity}
-                      onChange={(e) => handleQuantityChange(i, e.target.value)}
-                      sx={{ width: 80 }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Select
-                      size="small"
-                      value={item.unit}
-                      onChange={(e) => handleUnitChange(i, e.target.value)}
-                    >
-                      {unitOptions.map((u, idx) => (
-                        <MenuItem key={idx} value={u}>{u}</MenuItem>
-                      ))}
-                    </Select>
-                  </TableCell>
-                  <TableCell>
-                    {item.expiry ? new Date(item.expiry).toLocaleDateString("ar-EG") : '-'}
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" color={parseFloat(recalculated.remaining) < 5 ? "error" : "textSecondary"}>
-                      {recalculated.remaining}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={{ fontWeight: 'bold', color: 'var(--primary)' }}>
-                    {parseFloat(recalculated.total).toFixed(2)}
-                  </TableCell>
-                  <TableCell align="center">
-                    <IconButton size="small" onClick={() => setDeleteIndex(i)} color="error">
-                      <DeleteIcon />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+                  {recalculated.total.toFixed(2)}
+                </TableCell>
 
-            <TableRow
-              onClick={() => setShowSearch(true)}
-              sx={{ cursor: 'pointer', '& td': { border: 0 } }}
-            >
-              <TableCell colSpan={8} align="center" sx={{ py: 3, color: 'var(--primary)', fontWeight: 600 }}>
-                ➕ أضف منتج جديد للقائمة
-              </TableCell>
-            </TableRow>
-          </TableBody>
-        </Table>
-      </TableContainer>
+                <TableCell>
+                  <IconButton
+                    size="small"
+                    onClick={() => setDeleteIndex(i)}
+                    sx={{
+                      bgcolor: 'rgba(229,57,53,0.1)',
+                      '&:hover': {
+                        bgcolor: 'rgba(229,57,53,0.2)',
+                      },
+                    }}
+                  >
+                    <DeleteIcon fontSize="small" color="error" />
+                  </IconButton>
+                </TableCell>
+              </TableRow>
+            );
+          })}
 
-      <Dialog open={deleteIndex !== null} onClose={() => setDeleteIndex(null)}>
-        <Box p={3} textAlign="center">
-          <Typography variant="h6" gutterBottom>تأكيد الحذف</Typography>
-          <Typography variant="body1" sx={{ mb: 3 }}>هل أنت متأكد أنك تريد حذف هذا المنتج من الفاتورة؟</Typography>
-          <Box display="flex" justifyContent="center" gap={2}>
-            <Button variant="contained" color="error" onClick={confirmDelete}>حذف</Button>
-            <Button variant="outlined" onClick={() => setDeleteIndex(null)}>إلغاء</Button>
-          </Box>
-        </Box>
-      </Dialog>
+      <TableRow
+  onClick={() => setShowSearch(true)}
+  sx={{
+    cursor: 'pointer',
+    '& td': { border: 0 },
+  }}
+>
+  <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
+    <Box
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 1.2,
+        px: 3,
+        py: 1.4,
+        borderRadius: 999,
+        fontWeight: 700,
+        color: 'var(--primary)',
+        background:
+          'linear-gradient(135deg, rgba(0,137,123,0.12), rgba(0,137,123,0.05))',
+        border: '1px dashed var(--primary)',
+        transition: 'all 0.25s ease',
+        '&:hover': {
+          background:
+            'linear-gradient(135deg, rgba(0,137,123,0.2), rgba(0,137,123,0.1))',
+          transform: 'translateY(-2px) scale(1.02)',
+        },
+      }}
+    >
+      <Typography sx={{ fontSize: 20 }}>➕</Typography>
+      <Typography sx={{ letterSpacing: '0.4px' }}>
+        أضف منتج جديد للقائمة
+      </Typography>
     </Box>
-  );
+  </TableCell>
+</TableRow>
+
+        </TableBody>
+      </Table>
+    </TableContainer>
+
+    {/* ===== Delete Dialog ===== */}
+    <Dialog open={deleteIndex !== null} onClose={() => setDeleteIndex(null)}>
+      <Box p={4} textAlign="center">
+        <Typography variant="h6" fontWeight={700} gutterBottom>
+          تأكيد الحذف
+        </Typography>
+        <Typography sx={{ mb: 3, opacity: 0.8 }}>
+          هل أنت متأكد أنك تريد حذف هذا المنتج من الفاتورة؟
+        </Typography>
+        <Box display="flex" justifyContent="center" gap={2}>
+          <Button variant="contained" color="error" onClick={confirmDelete}>
+            حذف
+          </Button>
+          <Button variant="outlined" onClick={() => setDeleteIndex(null)}>
+            إلغاء
+          </Button>
+        </Box>
+      </Box>
+    </Dialog>
+  </Box>
+);
+
 };
 
 export default ProductsTable;

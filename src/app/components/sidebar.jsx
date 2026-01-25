@@ -16,6 +16,8 @@ const links = [
   { href: '/dashboard', label: 'تقارير الأرباح' },
   { href: '/companies', label: 'الموردين' },
   { href: '/settings', label: 'الإعدادات' },
+    { href: '/documentation', label: 'دليل الإستخدام' },
+
 ];
 
 const Sidebar = () => {
@@ -53,7 +55,12 @@ const Sidebar = () => {
     >
       {/* Branding */}
       <Box sx={{ mb: 6, display: 'flex', alignItems: 'center', gap: 2, px: 2 }}>
-        <Image src="https://www.istockphoto.com/illustrations/pharmacy-logo" alt="Logo" width={45} height={45} priority />
+<img
+  src="https://media.istockphoto.com/id/1313889711/vector/pharmacy-logo-icon-design-vector.jpg?s=612x612&w=0&k=20&c=VCXSKZSViMbf3eXYZ8EeUqJmuw67M13H1MehDvR3wxI="
+  alt="Logo"
+  width={45}
+  height={45}
+/>
         <Typography variant="h6" sx={{ fontWeight: 800, color: 'var(--primary)', lineHeight: 1.2 }}>
           {pharmacyName}
         </Typography>
@@ -89,10 +96,7 @@ const Sidebar = () => {
         px: 2,
         borderTop: '1px solid var(--glass-border)'
       }}>
-        <Box>
-          <Typography variant="caption" sx={{ color: 'var(--foreground)', opacity: 0.6, fontWeight: 700, display: 'block' }}>المدير المسئول</Typography>
-          <Typography variant="body2" sx={{ fontWeight: 800, color: 'var(--foreground)' }}>أدمن النظام</Typography>
-        </Box>
+ 
         <Tooltip title="خروج">
           <IconButton
             size="small"

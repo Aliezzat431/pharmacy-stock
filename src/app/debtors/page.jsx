@@ -1,19 +1,37 @@
 'use client';
-
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from "react";
 import {
-  Container, TextField, Dialog, DialogActions, DialogTitle, DialogContent,
-  Typography, Divider, Button, Table, TableHead,
-  TableBody, TableRow, TableCell, Grid, CardContent, Box, InputAdornment,
-  TableContainer, Paper, Snackbar, Alert,IconButton
-} from '@mui/material';
-import axios from 'axios';
-import PersonIcon from '@mui/icons-material/Person';
-import SearchIcon from '@mui/icons-material/Search';
-import PaidIcon from '@mui/icons-material/Paid';
-import CloseIcon from '@mui/icons-material/Close';
-import MoneyOffIcon from '@mui/icons-material/MoneyOff';
-import InfoIcon from '@mui/icons-material/Info';
+  Alert,
+  Box,
+  Button,
+  Chip,
+  Container,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  Grid,
+  IconButton,
+  Paper,
+  Snackbar,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
+  InputAdornment,
+} from "@mui/material";
+
+import PersonIcon from "@mui/icons-material/Person";
+import SearchIcon from "@mui/icons-material/Search";
+import PaidIcon from "@mui/icons-material/Paid";
+import CloseIcon from "@mui/icons-material/Close";
+import InfoIcon from "@mui/icons-material/Info";
+import axios from "axios";
+
 
 const DebtorsPage = () => {
   const [debtors, setDebtors] = useState([]);
