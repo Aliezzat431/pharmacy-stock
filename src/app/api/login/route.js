@@ -15,7 +15,7 @@ export async function POST(request) {
       );
     }
 
-    if (!password || typeof password !== "string" || password.trim().length < 6) {
+    if (!password || typeof password !== "string") {
       return NextResponse.json(
         { success: false, message: "كلمة المرور غير صالحة" },
         { status: 400 }
