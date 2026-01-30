@@ -136,301 +136,301 @@ const ProductSelectDialog = ({
   };
 
   return (
-  <>
-  <Dialog
-    open={open}
-    onClose={onClose}
-    fullWidth
-    maxWidth="md"
-    PaperProps={{
-      className: "glass-card",
-      sx: {
-        maxHeight: "90vh",
-        p: 1,
-        backgroundColor: "rgba(255,255,255,0.75)",
-        backdropFilter: "blur(10px)",
-      },
-    }}
-  >
-    <DialogTitle
-      component="div"
-      sx={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-      }}
-    >
-      <Typography
-        variant="h6"
-        component="div"
-        sx={{ fontWeight: 700, color: "var(--primary)" }}
-      >
-        🔍 البحث عن دواء
-      </Typography>
-
-      <IconButton onClick={onClose} size="small">
-        <CloseIcon />
-      </IconButton>
-    </DialogTitle>
-
-    <DialogContent
-      sx={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 2,
-        mt: 1,
-      }}
-    >
-      <TextField
+    <>
+      <Dialog
+        open={open}
+        onClose={onClose}
         fullWidth
-        placeholder="اكتب اسم الدواء أو الباركود..."
-        variant="outlined"
-        onChange={handleSearchChange}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <SearchIcon color="primary" />
-            </InputAdornment>
-          ),
-        }}
-        sx={{
-          "& .MuiOutlinedInput-root": {
-            borderRadius: "12px",
+        maxWidth="md"
+        PaperProps={{
+          className: "glass-card",
+          sx: {
+            maxHeight: "90vh",
+            p: 1,
+            backgroundColor: "rgba(255,255,255,0.75)",
+            backdropFilter: "blur(10px)",
           },
         }}
-      />
-
-      <TableContainer
-        className="glass-card"
-        sx={{
-          maxHeight: 400,
-          flexGrow: 1,
-          overflow: "auto",
-          border: "1px solid var(--glass-border)",
-        }}
       >
-        <Table stickyHeader className="modal-table">
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ fontWeight: "bold" }}>الاسم</TableCell>
-              <TableCell sx={{ fontWeight: "bold" }}>باركود</TableCell>
-              <TableCell sx={{ fontWeight: "bold" }}>الكمية</TableCell>
-              <TableCell sx={{ fontWeight: "bold" }}>السعر</TableCell>
-            </TableRow>
-          </TableHead>
-
-          <TableBody>
-            {Object.entries(grouped).map(([name, variantsList]) => {
-              const earliest = [...variantsList]
-                .sort((a, b) => {
-                  const dateA = a.expiryDate
-                    ? new Date(a.expiryDate)
-                    : new Date(8640000000000000);
-                  const dateB = b.expiryDate
-                    ? new Date(b.expiryDate)
-                    : new Date(8640000000000000);
-                  return dateA - dateB;
-                })[0];
-
-              const isSelected = selectedProduct?.name === name;
-
-              return (
-                <TableRow
-                  key={name}
-                  onClick={() => {
-                    setVariants(variantsList);
-                    setSelectedProduct(earliest);
-                    setTempUnit(
-                      earliest.unitOptions?.[0] ?? earliest.unit ?? "علبة"
-                    );
-                    setTempExpiry(earliest.expiryDate ?? "no-expiry");
-                    setTempQuantity(1);
-                  }}
-                  sx={{
-                    cursor: "pointer",
-                    bgcolor: isSelected
-                      ? "rgba(0, 137, 123, 0.1)"
-                      : "transparent",
-                    "& td": { border: 0 },
-                  }}
-                >
-                  <TableCell sx={{ fontWeight: isSelected ? 700 : 400 }}>
-                    {name}
-                  </TableCell>
-
-                  <TableCell>{earliest.barcode}</TableCell>
-
-                  <TableCell>
-                    <Typography
-                      variant="body2"
-                      color={earliest.quantity < 5 ? "error" : "inherit"}
-                    >
-                      {earliest.quantity}
-                    </Typography>
-                  </TableCell>
-
-                  <TableCell
-                    sx={{
-                      fontWeight: 600,
-                      color: "var(--primary)",
-                    }}
-                  >
-                    {earliest.price}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </TableContainer>
-
-      {selectedProduct && (
-        <Box
-          className="glass-card"
+        <DialogTitle
+          component="div"
           sx={{
-            p: 2,
             display: "flex",
-            gap: 2,
+            justifyContent: "space-between",
             alignItems: "center",
-            flexWrap: "wrap",
-            mt: 1,
-            bgcolor: "rgba(0, 137, 123, 0.05)",
           }}
         >
-          <Box sx={{ flex: 1, minWidth: 150 }}>
-            <Typography
-              variant="caption"
-              sx={{
-                display: "block",
-                mb: 0.5,
-                color: "var(--primary)",
-                fontWeight: 600,
-              }}
-            >
-              الكمية
-            </Typography>
+          <Typography
+            variant="h6"
+            component="div"
+            sx={{ fontWeight: 700, color: "var(--primary)" }}
+          >
+            🔍 البحث عن دواء
+          </Typography>
 
-            <TextField
-              type="number"
-              fullWidth
-              value={tempQuantity}
-              onChange={(e) => setTempQuantity(Number(e.target.value))}
-              size="small"
-            />
-          </Box>
+          <IconButton onClick={onClose} size="small">
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
 
-          <Box sx={{ flex: 1, minWidth: 120 }}>
-            <Typography
-              variant="caption"
-              sx={{
-                display: "block",
-                mb: 0.5,
-                color: "var(--primary)",
-                fontWeight: 600,
-              }}
-            >
-              الوحدة
-            </Typography>
-
-            <Select
-              fullWidth
-              value={tempUnit}
-              onChange={(e) => setTempUnit(e.target.value)}
-              size="small"
-            >
-              {(selectedProduct?.unitOptions || ["علبة"]).map((u) => (
-                <MenuItem
-                  key={typeof u === "string" ? u : u.value}
-                  value={typeof u === "string" ? u : u.value}
-                >
-                  {typeof u === "string" ? u : u.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </Box>
-
-          {selectedProduct?._id !== "agel" && (
-            <Box sx={{ flex: 1.5, minWidth: 180 }}>
-              <Typography
-                variant="caption"
-                sx={{
-                  display: "block",
-                  mb: 0.5,
-                  color: "var(--primary)",
-                  fontWeight: 600,
-                }}
-              >
-                تاريخ الصلاحية
-              </Typography>
-
-              <Select
-                fullWidth
-                value={tempExpiry}
-                onChange={(e) => {
-                  const newVariant = variants.find(
-                    (v) => (v.expiryDate ?? "no-expiry") === e.target.value
-                  );
-
-                  if (newVariant) {
-                    setSelectedProduct(newVariant);
-                    setTempExpiry(newVariant.expiryDate ?? "no-expiry");
-                    setTempUnit(
-                      newVariant.unitOptions?.[0] ??
-                        newVariant.unit ??
-                        "علبة"
-                    );
-                    setTempQuantity(1);
-                  }
-                }}
-                size="small"
-              >
-                {variants.map((v, i) => (
-                  <MenuItem key={i} value={v.expiryDate ?? "no-expiry"}>
-                    {v.expiryDate
-                      ? new Date(v.expiryDate).toLocaleDateString("en-GB")
-                      : "بدون صلاحية"}
-                  </MenuItem>
-                ))}
-              </Select>
-            </Box>
-          )}
-
-          <Button
-            variant="contained"
-            onClick={validateAndAdd}
+        <DialogContent
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+            mt: 1,
+          }}
+        >
+          <TextField
+            fullWidth
+            placeholder="اكتب اسم الدواء أو الباركود..."
+            variant="outlined"
+            onChange={handleSearchChange}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon color="primary" />
+                </InputAdornment>
+              ),
+            }}
             sx={{
-              mt: 2.5,
-              height: 40,
-              px: 4,
-              borderRadius: "10px",
-              fontWeight: 600,
-              bgcolor: "var(--primary)",
-              "&:hover": { bgcolor: "var(--primary-hover)" },
+              "& .MuiOutlinedInput-root": {
+                borderRadius: "12px",
+              },
+            }}
+          />
+
+          <TableContainer
+            className="glass-card"
+            sx={{
+              maxHeight: 400,
+              flexGrow: 1,
+              overflow: "auto",
+              border: "1px solid var(--glass-border)",
             }}
           >
-            إضافة للفاتورة
-          </Button>
-        </Box>
-      )}
-    </DialogContent>
-  </Dialog>
+            <Table stickyHeader className="modal-table">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: "bold" }}>الاسم</TableCell>
+                  <TableCell sx={{ fontWeight: "bold" }}>باركود</TableCell>
+                  <TableCell sx={{ fontWeight: "bold" }}>الكمية</TableCell>
+                  <TableCell sx={{ fontWeight: "bold" }}>السعر</TableCell>
+                </TableRow>
+              </TableHead>
 
-  <Snackbar
-    open={!!error}
-    autoHideDuration={4000}
-    onClose={() => setError(null)}
-    anchorOrigin={{ vertical: "top", horizontal: "center" }}
-  >
-    <Alert
-      severity="error"
-      variant="filled"
-      onClose={() => setError(null)}
-      sx={{ width: "100%", borderRadius: "12px" }}
-    >
-      {error}
-    </Alert>
-  </Snackbar>
-</>
+              <TableBody>
+                {Object.entries(grouped).map(([name, variantsList]) => {
+                  const earliest = [...variantsList]
+                    .sort((a, b) => {
+                      const dateA = a.expiryDate
+                        ? new Date(a.expiryDate)
+                        : new Date(8640000000000000);
+                      const dateB = b.expiryDate
+                        ? new Date(b.expiryDate)
+                        : new Date(8640000000000000);
+                      return dateA - dateB;
+                    })[0];
+
+                  const isSelected = selectedProduct?.name === name;
+
+                  return (
+                    <TableRow
+                      key={name}
+                      onClick={() => {
+                        setVariants(variantsList);
+                        setSelectedProduct(earliest);
+                        setTempUnit(
+                          earliest.unitOptions?.[0] ?? earliest.unit ?? "علبة"
+                        );
+                        setTempExpiry(earliest.expiryDate ?? "no-expiry");
+                        setTempQuantity(1);
+                      }}
+                      sx={{
+                        cursor: "pointer",
+                        bgcolor: isSelected
+                          ? "rgba(0, 137, 123, 0.1)"
+                          : "transparent",
+                        "& td": { border: 0 },
+                      }}
+                    >
+                      <TableCell sx={{ fontWeight: isSelected ? 700 : 400 }}>
+                        {name}
+                      </TableCell>
+
+                      <TableCell>{earliest.barcode}</TableCell>
+
+                      <TableCell>
+                        <Typography
+                          variant="body2"
+                          color={earliest.quantity < 5 ? "error" : "inherit"}
+                        >
+                          {earliest.quantity}
+                        </Typography>
+                      </TableCell>
+
+                      <TableCell
+                        sx={{
+                          fontWeight: 600,
+                          color: "var(--primary)",
+                        }}
+                      >
+                        {earliest.price}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          {selectedProduct && (
+            <Box
+              className="glass-card"
+              sx={{
+                p: 2,
+                display: "flex",
+                gap: 2,
+                alignItems: "center",
+                flexWrap: "wrap",
+                mt: 1,
+                bgcolor: "rgba(0, 137, 123, 0.05)",
+              }}
+            >
+              <Box sx={{ flex: 1, minWidth: 100 }}>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    display: "block",
+                    mb: 0.5,
+                    color: "var(--primary)",
+                    fontWeight: 600,
+                  }}
+                >
+                  الكمية
+                </Typography>
+
+                <TextField
+                  type="number"
+                  fullWidth
+                  value={tempQuantity}
+                  onChange={(e) => setTempQuantity(Number(e.target.value))}
+                  size="small"
+                />
+              </Box>
+
+              <Box sx={{ flex: 1, minWidth: 120 }}>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    display: "block",
+                    mb: 0.5,
+                    color: "var(--primary)",
+                    fontWeight: 600,
+                  }}
+                >
+                  الوحدة
+                </Typography>
+
+                <Select
+                  fullWidth
+                  value={tempUnit}
+                  onChange={(e) => setTempUnit(e.target.value)}
+                  size="small"
+                >
+                  {(selectedProduct?.unitOptions || ["علبة"]).map((u) => (
+                    <MenuItem
+                      key={typeof u === "string" ? u : u.value}
+                      value={typeof u === "string" ? u : u.value}
+                    >
+                      {typeof u === "string" ? u : u.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </Box>
+
+              {selectedProduct?._id !== "agel" && (
+                <Box sx={{ flex: 1.5, minWidth: 180 }}>
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      display: "block",
+                      mb: 0.5,
+                      color: "var(--primary)",
+                      fontWeight: 600,
+                    }}
+                  >
+                    تاريخ الصلاحية
+                  </Typography>
+
+                  <Select
+                    fullWidth
+                    value={tempExpiry}
+                    onChange={(e) => {
+                      const newVariant = variants.find(
+                        (v) => (v.expiryDate ?? "no-expiry") === e.target.value
+                      );
+
+                      if (newVariant) {
+                        setSelectedProduct(newVariant);
+                        setTempExpiry(newVariant.expiryDate ?? "no-expiry");
+                        setTempUnit(
+                          newVariant.unitOptions?.[0] ??
+                          newVariant.unit ??
+                          "علبة"
+                        );
+                        setTempQuantity(1);
+                      }
+                    }}
+                    size="small"
+                  >
+                    {variants.map((v, i) => (
+                      <MenuItem key={i} value={v.expiryDate ?? "no-expiry"}>
+                        {v.expiryDate
+                          ? new Date(v.expiryDate).toLocaleDateString("en-GB")
+                          : "بدون صلاحية"}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </Box>
+              )}
+
+              <Button
+                variant="contained"
+                onClick={validateAndAdd}
+                sx={{
+                  mt: 2.5,
+                  height: 40,
+                  px: 4,
+                  borderRadius: "10px",
+                  fontWeight: 600,
+                  bgcolor: "var(--primary)",
+                  "&:hover": { bgcolor: "var(--primary-hover)" },
+                }}
+              >
+                إضافة للفاتورة
+              </Button>
+            </Box>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Snackbar
+        open={!!error}
+        autoHideDuration={4000}
+        onClose={() => setError(null)}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+      >
+        <Alert
+          severity="error"
+          variant="filled"
+          onClose={() => setError(null)}
+          sx={{ width: "100%", borderRadius: "12px" }}
+        >
+          {error}
+        </Alert>
+      </Snackbar>
+    </>
 
   );
 };

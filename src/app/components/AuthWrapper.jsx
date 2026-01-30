@@ -1,34 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { useDispatch, useSelector } from "react-redux";
+import { checkAuth } from "@/lib/redux/slices/authSlice";
 import Login from "./login";
 import Sidebar from "./sidebar";
-import axios from "axios";
 
 const AuthWrapper = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(null);
+  const dispatch = useDispatch();
+  const { isAuthenticated, loading } = useSelector((state) => state.auth);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-
-    const verifyToken = async () => {
-      if (!token) {
-        setIsAuthenticated(false);
-        return;
-      }
-
-      try {
-        const res = await axios.post("/api/verify-token", { token });
-        console.log(res.data.success);
-        setIsAuthenticated(res.data.success);
-      } catch (err) {
-        console.error("Token verification failed:", err);
-        setIsAuthenticated(false);
-      }
-    };
-
-    verifyToken();
-  }, []);
+    dispatch(checkAuth());
+  }, [dispatch]);
 
   if (isAuthenticated === null) {
     return null; // Could show loading spinner here
@@ -46,10 +30,10 @@ const AuthWrapper = ({ children }) => {
         </div>
 
         <footer
-  className="text-center text-sm text-white py-2 border-t border-white/20 bg-transparent"
->
-  جميع الحقوق محفوظة © 2025
-</footer>
+          className="text-center text-sm text-white py-2 border-t border-white/20 bg-transparent"
+        >
+          جميع الحقوق محفوظة © 2025
+        </footer>
 
       </div>
     </div>

@@ -33,6 +33,7 @@ export async function GET(req) {
           totalOut: 0,
           totalSuspended: 0,
           totalSadaqah: 0,
+          totalWithdrawal: 0,
           orders: []
         };
       }
@@ -42,6 +43,8 @@ export async function GET(req) {
       else if (curr.transactionType === 'out') acc[dateStr].totalOut += curr.amount;
       else if (curr.transactionType === 'suspended') acc[dateStr].totalSuspended += curr.amount;
       else if (curr.transactionType === 'sadaqah') acc[dateStr].totalSadaqah += curr.amount;
+      else if (curr.transactionType === 'sadaqahPaid') acc[dateStr].totalIn += curr.amount;
+      else if (curr.transactionType === 'withdrawal') acc[dateStr].totalWithdrawal += curr.amount;
 
       const reason = curr.transactionType === 'sadaqah'
         ? "صدقة (غير مدفوعة)"
@@ -58,16 +61,32 @@ export async function GET(req) {
 
     const result = Object.values(grouped).sort((a, b) => a._id.localeCompare(b._id));
 
+    // Role-based data restriction
+    if (user.role !== 'master') {
+      const restrictedFinal = result.map(day => ({
+        date: day._id,
+        orders: day.orders.map(order => ({
+          reason: order.reason,
+          type: order.type
+        }))
+      }));
+      return NextResponse.json(restrictedFinal);
+    }
+
     let runningTotal = baseCapital;
     const final = result.map(day => {
-      const netProfit = day.totalIn - day.totalOut;
+      // هنا بنحسب صافي اليوم بشكل كامل
+      const netProfit = day.totalIn - (day.totalOut + day.totalSadaqah + (day.totalWithdrawal || 0));
+
       runningTotal += netProfit;
+
       return {
         date: day._id,
         totalIn: day.totalIn,
         totalOut: day.totalOut,
         totalSuspended: day.totalSuspended,
         totalSadaqah: day.totalSadaqah || 0,
+        totalWithdrawal: day.totalWithdrawal || 0,
         currentCapital: runningTotal,
         orders: day.orders
       };

@@ -42,7 +42,7 @@ export async function POST(req) {
 
     try {
       for (const productData of body) {
-        const {
+        let {
           name,
           type,
           quantity,
@@ -55,11 +55,29 @@ export async function POST(req) {
           details,
         } = productData;
 
+        if (!name || quantity === undefined) {
+          throw new Error("اسم المنتج والكمية مطلوبات.");
+        }
+
+        // Check if product exists first
+        let existingProduct = await Product.findOne({ name: name.trim() }).session(session);
+
+        // If product exists, fill missing fields from database
+        if (existingProduct) {
+          type = type || existingProduct.type;
+          barcode = barcode || (existingProduct.barcodes?.length ? existingProduct.barcodes[0] : existingProduct.barcode);
+          company = company || existingProduct.company;
+          purchasePrice = purchasePrice !== undefined ? purchasePrice : existingProduct.purchasePrice;
+          salePrice = salePrice !== undefined ? salePrice : existingProduct.price;
+          unitConversion = (unitConversion !== undefined && unitConversion !== null) ? unitConversion : existingProduct.unitConversion;
+        }
+
+        // Final validation for new products or critical fields
         if (
           !name || !type || !barcode || !company ||
-          purchasePrice === undefined || salePrice === undefined || quantity === undefined
+          purchasePrice === undefined || salePrice === undefined
         ) {
-          throw new Error("جميع الحقول مطلوبة: الاسم، النوع، السعرين، الكمية، الباركود، الشركة");
+          throw new Error(`بيانات غير مكتملة للمنتج "${name}". يرجى التأكد من توفر: النوع، السعرين، الباركود، والشركة.`);
         }
 
         const allowedUnits = typesWithUnits[type];
@@ -67,10 +85,12 @@ export async function POST(req) {
           throw new Error(`النوع "${type}" غير معروف.`);
         }
 
-        // Check company existence
-        const companyDoc = await Company.findOne({ name: company }).session(session);
+        // Check company existence or create if missing
+        let companyDoc = await Company.findOne({ name: company }).session(session);
         if (!companyDoc) {
-          throw new Error(`الشركة "${company}" غير موجودة. يرجى إنشاؤها أولاً.`);
+          console.log(`Automatic creation of company: ${company}`);
+          companyDoc = await Company.create([{ name: company }], { session });
+          companyDoc = companyDoc[0]; // Mongoose create with session returns an array
         }
 
         const parsedPurchasePrice = Number(purchasePrice);
@@ -143,13 +163,13 @@ export async function POST(req) {
           price: product.price,
           quantity: product.quantity,
           unit: product.unit,
-          total: product.price * product.quantity,
+          total: parsedSalePrice * parsedQuantity, // ده قيمة الكمية اللي اتضافت مش المخزون كله
           unitOptions: allowedUnits,
           fullProduct: product,
         });
 
-        totalAmount += parsedPurchasePrice * parsedQuantity;
-        reasonParts.push(`${parsedQuantity} ${product.unit} ${name}`);
+        totalAmount += productData.isGift ? 0 : (parsedPurchasePrice * parsedQuantity);
+        reasonParts.push(`${parsedQuantity} ${product.unit} ${name}${productData.isGift ? ' (هدية)' : ''}`);
       }
 
       if (totalAmount > 0 && reasonParts.length > 0) {
@@ -157,7 +177,17 @@ export async function POST(req) {
         await Winning.create([{
           amount: totalAmount,
           reason,
-          transactionType: 'out'
+          transactionType: 'out',
+          date: new Date()
+        }], { session });
+      } else if (reasonParts.length > 0) {
+        // Only gifts added
+        const reason = `تم إضافة بونص/هدية: ${reasonParts.join(" و ")}`;
+        await Winning.create([{
+          amount: 0,
+          reason,
+          transactionType: 'out', // Zero amount out is fine for logging
+          date: new Date()
         }], { session });
       }
 
@@ -207,93 +237,133 @@ export async function GET(req) {
   }
 }
 
-export async function PATCH(req) {
+export async function PATCH(request) {
   try {
-    const user = verifyToken(req.headers);
+    const user = verifyToken(request.headers);
     if (!user) {
-      return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
     }
 
-    const conn = await getDb(user.pharmacyId);
-    const Product = getProductModel(conn);
-    const Winning = getWinningModel(conn);
+    const { mode, product, adjustmentReason } = await request.json();
 
-    const body = await req.json();
-    const { id, mode } = body;
+    const db = await getDb(user.pharmacyId);
+    const Product = getProductModel(db);
 
-    if (!id || !mode) {
-      return NextResponse.json({ error: 'Missing id or mode' }, { status: 400 });
+    if (!product?._id && !product?.name) {
+      return NextResponse.json(
+        { success: false, message: "Missing product id or name" },
+        { status: 400 }
+      );
     }
 
-    if (mode === 'barcode') {
-      const { barcode } = body;
-      if (!barcode) return NextResponse.json({ error: 'Missing barcode' }, { status: 400 });
-
-      await Product.findByIdAndUpdate(id, { barcode });
-      return NextResponse.json({ success: true });
+    const query = product._id ? { _id: product._id } : { name: product.name.trim() };
+    const existing = await Product.findOne(query);
+    if (!existing) {
+      return NextResponse.json(
+        { success: false, message: "Product not found" },
+        { status: 404 }
+      );
     }
 
-    if (mode === 'expiryDate') {
-      const { expiryDate } = body;
-      if (!expiryDate || isNaN(Date.parse(expiryDate))) {
-        return NextResponse.json({ error: 'Invalid expiry date' }, { status: 400 });
+    // لو جرد => تحديث كامل مع حساب القيمة المالية للفرق
+    if (mode === "inventory") {
+      const oldQty = Number(existing.quantity);
+      const newQty = Number(product.quantity);
+      const qtyDiff = newQty - oldQty;
+
+      const updated = await Product.findByIdAndUpdate(
+        existing._id,
+        {
+          ...product,
+          _id: existing._id,
+          quantity: newQty,
+          purchasePrice: Number(product.purchasePrice || existing.purchasePrice),
+          price: Number(product.price || existing.price),
+        },
+        { new: true }
+      );
+
+      // --- RECORD FINANCIAL IMPACT ---
+      if (qtyDiff !== 0) {
+        const Winning = getWinningModel(db);
+        // If decrease and reason is damage/burnt, it's an 'out' (loss)
+        const isLoss = qtyDiff < 0 && (adjustmentReason === 'burnt' || adjustmentReason === 'damaged' || adjustmentReason === 'expired');
+
+        await Winning.create([{
+          amount: Math.abs(qtyDiff * Number(existing.purchasePrice || 0)),
+          reason: `جرد للمنتج "${existing.name}": ${adjustmentReason || (qtyDiff > 0 ? 'زيادة' : 'عجز')} بمقدار ${Math.abs(qtyDiff)} ${existing.unit}`,
+          transactionType: (qtyDiff > 0 || isLoss) ? 'out' : 'in',
+          date: new Date()
+        }]);
       }
-      await Product.findByIdAndUpdate(id, { expiryDate });
-      return NextResponse.json({ success: true });
+      // -------------------------------
+
+      return NextResponse.json(
+        { success: true, product: updated },
+        { status: 200 }
+      );
     }
 
-    if (mode === 'quantity') {
-      const { quantity } = body;
-      if (typeof quantity !== 'number' || isNaN(quantity)) {
-        return NextResponse.json({ error: 'Invalid quantity' }, { status: 400 });
+    // لو update عادي => السيرفر يحسب profit ويعدل quantity
+    if (mode === "update") {
+      const isGift = !!product.isGift;
+      const oldQty = Number(existing.quantity);
+      const newQty = Number(product.quantity);
+
+      const qtyDiff = newQty - oldQty; // لو موجب = زيادة
+      const profitPerUnit = Number(product.price || existing.price) - Number(existing.purchasePrice);
+      const profitChange = qtyDiff * profitPerUnit;
+
+      const updated = await Product.findByIdAndUpdate(
+        existing._id,
+        {
+          ...product,
+          _id: existing._id,
+          quantity: newQty,
+          purchasePrice: Number(product.purchasePrice || existing.purchasePrice),
+          price: Number(product.price || existing.price),
+        },
+        { new: true }
+      );
+
+      // --- RECORD FINANCIAL IMPACT (Skip if it's a gift) ---
+      if (qtyDiff !== 0 && !isGift) {
+        const Winning = getWinningModel(db);
+        const isLoss = qtyDiff < 0 && (adjustmentReason === 'burnt' || adjustmentReason === 'damaged' || adjustmentReason === 'expired');
+
+        await Winning.create([{
+          amount: Math.abs(qtyDiff * Number(existing.purchasePrice || 0)),
+          reason: `تعديل كمية للمنتج "${existing.name}": ${adjustmentReason || (qtyDiff > 0 ? 'زيادة' : 'نقص')} بمقدار ${Math.abs(qtyDiff)} ${existing.unit}`,
+          transactionType: (qtyDiff > 0 || isLoss) ? 'out' : 'in',
+          date: new Date()
+        }]);
+      } else if (qtyDiff > 0 && isGift) {
+        const Winning = getWinningModel(db);
+        await Winning.create([{
+          amount: 0,
+          reason: `إضافة بونص/هدية للمنتج "${existing.name}": +${Math.abs(qtyDiff)} ${existing.unit}`,
+          transactionType: 'out',
+          date: new Date()
+        }]);
       }
 
-      const product = await Product.findById(id);
-      if (!product) return NextResponse.json({ error: 'Product not found' }, { status: 404 });
-
-      if (quantity < 0) return NextResponse.json({ error: 'الكمية لا يمكن أن تكون سالبة' }, { status: 400 });
-
-      const threshold = await getSetting(conn, 'lowStockThreshold', 5);
-
-      const oldQuantity = product.quantity;
-      product.quantity = quantity;
-      product.isShortcoming = quantity < threshold;
-
-      await product.save();
-
-      const diff = quantity - oldQuantity;
-      if (diff !== 0) {
-        const transactionType = diff > 0 ? 'out' : 'in';
-        const amount = Math.abs(diff * product.price);
-        const reason = diff > 0
-          ? `زيادة كمية ${product.name} من ${oldQuantity} ${product.unit} إلى ${quantity} ${product.unit}`
-          : `نقص كمية ${product.name} من ${oldQuantity} ${product.unit} إلى ${quantity} ${product.unit}`;
-
-        await Winning.create({
-          amount,
-          reason,
-          transactionType
-        });
-      }
-
-      return NextResponse.json({ success: true });
+      return NextResponse.json(
+        { success: true, product: updated, profitChange },
+        { status: 200 }
+      );
     }
 
-    if (mode === 'unitConversion') {
-      const { unitConversion } = body;
-      const parsed = Number(unitConversion);
-      if (!parsed || isNaN(parsed) || parsed <= 0) {
-        return NextResponse.json({ error: 'قيمة التحويل يجب أن تكون رقم أكبر من صفر' }, { status: 400 });
-      }
+    return NextResponse.json(
+      { success: false, message: "Invalid mode" },
+      { status: 400 }
+    );
 
-      await Product.findByIdAndUpdate(id, { unitConversion: parsed });
-      return NextResponse.json({ success: true });
-    }
-
-    return NextResponse.json({ error: 'Invalid mode' }, { status: 400 });
-  } catch (error) {
-    console.error('PATCH error:', error);
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json(
+      { success: false, message: "Server error" },
+      { status: 500 }
+    );
   }
 }
 
@@ -314,13 +384,28 @@ export async function DELETE(req) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });
     }
 
-    const deletedProduct = await Product.findByIdAndDelete(id);
-
-    if (!deletedProduct) {
+    const productToDelete = await Product.findById(id);
+    if (!productToDelete) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, message: "Product deleted successfully" });
+    const stockValue = (Number(productToDelete.quantity) || 0) * (Number(productToDelete.purchasePrice) || 0);
+
+    const deletedProduct = await Product.findByIdAndDelete(id);
+
+    // --- RECORD LOSS AS 'OUT' WINNING ---
+    if (stockValue > 0) {
+      const Winning = getWinningModel(conn);
+      await Winning.create([{
+        amount: stockValue,
+        reason: `حذف منتج من النظام مع مخزون متبقي: "${productToDelete.name}" (كمية: ${productToDelete.quantity} ${productToDelete.unit})`,
+        transactionType: 'out',
+        date: new Date()
+      }]);
+    }
+    // ------------------------------------
+
+    return NextResponse.json({ success: true, message: "Product deleted successfully", lostValue: stockValue });
   } catch (error) {
     console.error("DELETE error:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });

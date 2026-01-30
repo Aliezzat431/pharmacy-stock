@@ -20,8 +20,8 @@ export async function GET(req) {
     if (query) {
       filter.$or = [
         { name: { $regex: query, $options: "i" } },
-        { barcode: query },            // exact match
-        { barcodes: query }            // exact match in array
+        { barcode: query },      
+        { barcodes: query }
       ];
     }
 

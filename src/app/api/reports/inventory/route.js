@@ -34,7 +34,7 @@ export async function GET(req) {
 
     const expiringSoon = allProducts.filter((p) => {
       if (!p.expiryDate) return false;
-      if (isNaN(p.expiryDate.getTime())) return false; // invalid date
+      if (isNaN(p.expiryDate.getTime())) return false;
       return p.expiryDate > now && p.expiryDate <= threeMonthsFromNow;
     });
 

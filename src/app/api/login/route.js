@@ -32,7 +32,7 @@ export async function POST(request) {
     // ====== DB & user ======
     const conn = await getDb(pharmacyId);
     const User = getUserModel(conn);
-
+console.log({ username, password });
     // لو عندك hashing للباسورد لازم تستخدم bcrypt.compare بدل البحث المباشر
     const user = await User.findOne({ username, password });
 
@@ -55,20 +55,35 @@ export async function POST(request) {
       {
         username: user.username,
         userId: user._id.toString(),
-        pharmacyId: pharmacyId || "1"
+        pharmacyId: pharmacyId || "1",
+        role: user.role
       },
       jwtSecret,
       { expiresIn: '7d' }
     );
 
-    return NextResponse.json(
+    const response = NextResponse.json(
       {
         success: true,
         message: 'تم تسجيل الدخول بنجاح',
-        token,
+        user: {
+          username: user.username,
+          role: user.role,
+          userId: user._id
+        }
       },
       { status: 200 }
     );
+
+    response.cookies.set('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+      path: '/',
+    });
+
+    return response;
 
   } catch (error) {
     console.error('Login error:', error);

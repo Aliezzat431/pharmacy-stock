@@ -7,13 +7,16 @@ export async function GET(req) {
   try {
     const user = verifyToken(req.headers);
     if (!user) {
-      return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { success: false, message: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
     const conn = await getDb(user.pharmacyId);
     const Setting = getSettingModel(conn);
 
-    const allSettings = await Setting.find({});
+    const allSettings = await Setting.find({}).lean();
 
     const settingsObj = allSettings.reduce((acc, curr) => {
       acc[curr.key] = curr.value;
@@ -23,7 +26,10 @@ export async function GET(req) {
     return NextResponse.json({ success: true, settings: settingsObj });
   } catch (error) {
     console.error("GET settings error:", error);
-    return NextResponse.json({ success: false, message: "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Server error" },
+      { status: 500 }
+    );
   }
 }
 
@@ -31,19 +37,27 @@ export async function POST(req) {
   try {
     const user = verifyToken(req.headers);
     if (!user) {
-      return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { success: false, message: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
     const body = await req.json();
     const { key, value } = body;
 
-    if (!key) {
-      return NextResponse.json({ success: false, message: "Key is required" }, { status: 400 });
+    if (!key || typeof key !== "string" || key.trim() === "") {
+      return NextResponse.json(
+        { success: false, message: "Key is required and must be a string" },
+        { status: 400 }
+      );
     }
 
-    // optional: validate value type
-    if (value === undefined) {
-      return NextResponse.json({ success: false, message: "Value is required" }, { status: 400 });
+    if (value === undefined || value === null) {
+      return NextResponse.json(
+        { success: false, message: "Value is required" },
+        { status: 400 }
+      );
     }
 
     const conn = await getDb(user.pharmacyId);
@@ -63,6 +77,9 @@ export async function POST(req) {
 
   } catch (error) {
     console.error("POST settings error:", error);
-    return NextResponse.json({ success: false, message: "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: "Server error" },
+      { status: 500 }
+    );
   }
 }

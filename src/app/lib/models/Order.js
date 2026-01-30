@@ -21,7 +21,5 @@ const DebtorSchema = new mongoose.Schema({
     partialPayments: { type: Number, default: 0 },
 }, { timestamps: true });
 
-// Note: In SQLite, debtors and orders were separate tables. 
-// We'll keep them as separate collections in Mongoose for consistency with existing logic.
 export const getOrderModel = (conn) => conn.models.Order || conn.model('Order', OrderSchema);
 export const getDebtorModel = (conn) => conn.models.Debtor || conn.model('Debtor', DebtorSchema);

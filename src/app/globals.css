@@ -3,15 +3,15 @@
 
 /* ================== Variables ================== */
 :root {
-  --background: #f4f7f6;
-  --foreground: #1a202c;
-  --primary: #00897b;
-  --primary-hover: #00695c;
-  --secondary: #4caf50;
-  --accent: #26a69a;
-  --error: #e53935;
-  --glass-bg: rgba(255, 255, 255, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.3);
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --primary: #0f766e;
+  --primary-hover: #115e59;
+  --secondary: #22c55e;
+  --accent: #14b8a6;
+  --error: #ef4444;
+  --glass-bg: rgba(255, 255, 255, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.4);
   --font-sans: 'Inter', 'Amiri', serif !important;
 }
 
@@ -27,19 +27,20 @@
 body {
   background-color: var(--background) !important;
   color: var(--foreground) !important;
-  transition: background-color 0.3s ease, color 0.3s ease;
+  transition: background-color 0.4s ease, color 0.4s ease;
   font-family: var(--font-sans);
   margin: 0;
 }
 
-/* ================== Dark Mode ================== */
+/* ================== Dark Mode (Premium Slate) ================== */
 .dark {
-  --background: #0f172a;
-  --foreground: #f1f5f9;
-  --glass-bg: rgba(15, 23, 42, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.1);
-  --primary: #26a69a;
-  --secondary: #66bb6a;
+  --background: #0f172a; /* Slate 900 */
+  --foreground: #f1f5f9; /* Slate 100 */
+  --glass-bg: rgba(15, 23, 42, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --primary: #2dd4bf; /* Teal 400 */
+  --secondary: #4ade80; /* Green 400 */
+  --error: #f87171; /* Red 400 */
 }
 
 /* ================== MUI Dark Overrides ================== */

@@ -14,6 +14,8 @@ import {
   DialogContent,
   DialogActions,
   CircularProgress,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material';
 import axios from 'axios';
 
@@ -26,6 +28,8 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [registerBlocked, setRegisterBlocked] = useState(false);
   const [pharmacyName, setPharmacyName] = useState("Smart Pharma");
+  const [masterPin, setMasterPin] = useState('');
+  const [isMasterRequested, setIsMasterRequested] = useState(false);
 
   React.useEffect(() => {
     const saved = localStorage.getItem("pharmacy-info");
@@ -48,15 +52,16 @@ const Login = () => {
 
     const endpoint = isRegister ? '/api/register' : '/api/login';
     const payload = isRegister
-      ? { username, password, pharmacyId }
+      ? { username, password, pharmacyId, masterPin }
       : { username, password, pharmacyId };
+    console.log(payload);
 
     setLoading(true);
     try {
       const res = await axios.post(endpoint, payload);
 
-      if (res.data.token) {
-        localStorage.setItem('token', res.data.token);
+      if (res.data.success) {
+        // Redux/Cookie handles auth status now, no need to save token manually
         showPopup('success', isRegister ? '✅ تم التسجيل بنجاح' : '✅ تم تسجيل الدخول بنجاح');
         setTimeout(() => window.location.reload(), 1500);
       } else {
@@ -85,13 +90,13 @@ const Login = () => {
   };
 
   return (
-  <Container maxWidth="sm" dir="rtl" sx={{ mt: 8 }}>
+    <Container maxWidth="sm" dir="rtl" sx={{ mt: 8 }}>
       <Paper elevation={4} sx={{
         p: 4,
         borderRadius: '24px',
         textAlign: 'center',
         bgcolor: 'var(--glass-bg)',
-     
+
         backdropFilter: 'blur(10px)',
         border: '1px solid var(--glass-border)'
       }}>
@@ -144,7 +149,33 @@ const Login = () => {
               <option value="1">صيدلية 1 (الرئيسية)</option>
               <option value="2">صيدلية 2 (الفرعية)</option>
             </TextField>
+            {isRegister && (
+              <Box sx={{ mt: 1, textAlign: 'right' }}>
+                {isMasterRequested && (
+                  <TextField
+                    label="رقم الماستر السري"
+                    type="password"
+                    variant="outlined"
+                    fullWidth
+                    margin="normal"
+                    value={masterPin}
+                    onChange={(e) => setMasterPin(e.target.value)}
+                    helperText="أدخل الكود السري للحصول على كامل الصلاحيات"
+                  />
+                )}
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={isMasterRequested}
+                      onChange={(e) => setIsMasterRequested(e.target.checked)}
+                      color="primary"
+                    />
+                  }
+                  label="التسجيل كمسؤول للمجال (Master)"
+                />
 
+              </Box>
+            )}
             <Button
               type="submit"
               variant="contained"
@@ -198,7 +229,7 @@ const Login = () => {
         </DialogActions>
       </Dialog>
     </Container>
-    );
+  );
 };
 
 export default Login;

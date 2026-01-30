@@ -11,52 +11,64 @@ const ALLOWED_TYPES = [
   "مضاد حيوي شرب","مضاد حيوي برشام","دواء عادي برشام","فيتامين برشام",
   "فيتامين شرب","دواء شرب عادي","نقط فم","نقط أنف","بخاخ فم","بخاخ أنف",
   "مرهم","مستحضرات","لبوس","حقن","فوار"
-];
+].map(t => t.toLowerCase());
 
 export async function GET(req) {
+  const isDev = process.env.NODE_ENV !== "production";
+
+  const debug = (label, data) => {
+    if (isDev) console.log(`[SEARCH DEBUG] ${label}:`, data);
+  };
+
+  if (!req.url) {
+    debug("REQ_URL", "Missing req.url");
+    return NextResponse.json({ results: [], debug: "Missing req.url" });
+  }
+
   const { searchParams } = new URL(req.url);
   const query = searchParams.get("q")?.trim().toLowerCase();
   const type = searchParams.get("type")?.trim().toLowerCase();
 
-  if (!query) return NextResponse.json({ results: [] });
+  debug("QUERY", query);
+  debug("TYPE", type);
+
+  if (!query) {
+    debug("NO_QUERY", "Query is empty");
+    return NextResponse.json({ results: [], debug: "Query is empty" });
+  }
 
   const cacheKey = `${query}:${type || "all"}`;
   const cached = searchCache.get(cacheKey);
+
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return NextResponse.json({ results: cached.data });
+    debug("CACHE_HIT", { cacheKey, age: Date.now() - cached.timestamp });
+    return NextResponse.json({ results: cached.data, debug: "CACHE_HIT" });
   }
 
-  let results = [];
-
-  const OR_KEY = process.env.OPENROUTER_API_KEY;
-
-  // Validate type
   if (type && !ALLOWED_TYPES.includes(type)) {
+    debug("INVALID_TYPE", { type, allowed: ALLOWED_TYPES });
     return NextResponse.json({
       error: "نوع المنتج غير صالح",
-      allowedTypes: ALLOWED_TYPES
+      allowedTypes: ALLOWED_TYPES,
+      debug: "INVALID_TYPE"
     }, { status: 400 });
   }
 
-  if (OR_KEY) {
+  let results = [];
+  const OR_KEY = process.env.OPENAI_API_KEY;
+
+  if (!OR_KEY) {
+    debug("NO_OR_KEY", "OPENROUTER_API_KEY is missing");
+  } else {
     try {
       const prompt = `
 You are a pharmacy expert in Egypt.
 Return a JSON array of up to 5 real pharmaceutical products in Egypt matching: "${query}" ${type ? `of type "${type}"` : ""}.
 Include: name, type, salePrice, purchasePrice, company, unitConversion, details.
-
-RULES:
-- "name" field MUST be only the BRAND NAME in ENGLISH only.
-- NO Arabic in name field.
-- NO concentrations or package sizes in the "name" field.
-- Put all concentration and package details in "details".
-- "company" should be short names if possible.
-- "unitConversion" MUST be a NUMBER only.
-- "type" MUST be one of the allowed types.
-- "details" Arabic, concise.
-
 Return ONLY raw JSON array.
 `;
+
+      debug("PROMPT", prompt);
 
       const client = new OpenAI({
         baseURL: "https://openrouter.ai/api/v1",
@@ -71,40 +83,59 @@ Return ONLY raw JSON array.
       });
 
       const content = completion.choices?.[0]?.message?.content;
+      debug("AI_RAW_CONTENT", content);
 
       if (content) {
-        // Try parse safely
-        try {
-          const parsed = JSON.parse(content);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            results = parsed.map(r => ({ ...r, isAi: true }));
-          }
-        } catch (e) {
-          // fallback to regex if strict JSON fails
-          const match = content.match(/\[[\s\S]*\]/);
-          if (match) {
-            const parsed = JSON.parse(match[0]);
-            if (Array.isArray(parsed)) {
-              results = parsed.map(r => ({ ...r, isAi: true }));
-            }
-          }
+        const sanitized = content.replace(/\r/g, " ").trim();
+        debug("AI_SANITIZED", sanitized);
+
+        const tryParse = (text) => {
+          try {
+            const parsed = JSON.parse(text);
+            if (Array.isArray(parsed)) return parsed;
+          } catch (e) {}
+          return null;
+        };
+
+        // 1) parse directly
+        let parsed = tryParse(sanitized);
+
+        // 2) parse inside code block
+        if (!parsed) {
+          const codeMatch = sanitized.match(/```json([\s\S]*?)```/i);
+          if (codeMatch) parsed = tryParse(codeMatch[1].trim());
         }
 
-        if (results.length > 0) {
-          searchCache.set(cacheKey, { data: results, timestamp: Date.now() });
+        // 3) parse array inside text
+        if (!parsed) {
+          const arrayMatch = sanitized.match(/\[[\s\S]*\]/);
+          if (arrayMatch) parsed = tryParse(arrayMatch[0]);
+        }
+
+        if (parsed) {
+          results = parsed.map(r => ({ ...r, isAi: true }));
         }
       }
+
+      if (results.length > 0) {
+        searchCache.set(cacheKey, { data: results, timestamp: Date.now() });
+        debug("CACHE_SET", { cacheKey, count: results.length });
+      }
+
     } catch (err) {
-      console.error("[Search API] AI error:", err.message);
+      debug("AI_ERROR", err?.message || err);
+      return NextResponse.json({ error: "AI service error", debug: err?.message || err }, { status: 500 });
     }
   }
 
-  // fallback
   if (results.length === 0) {
+    debug("FALLBACK_START", { query });
     results = EGYPT_DRUGS_MOCK
       .filter(d => d.name.toLowerCase().includes(query))
       .map(r => ({ ...r, isFallback: true }));
+
+    debug("FALLBACK_END", { resultsCount: results.length });
   }
 
-  return NextResponse.json({ results });
+  return NextResponse.json({ results, debug: "DONE" });
 }

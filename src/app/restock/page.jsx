@@ -155,8 +155,8 @@ const RestockPage = () => {
                                 <TableCell sx={{ fontWeight: 800 }}>المنتج</TableCell>
                                 <TableCell sx={{ fontWeight: 800 }}>الكمية الحالية</TableCell>
                                 <TableCell sx={{ fontWeight: 800 }}>الوحدة الحالية</TableCell>
-                                <TableCell sx={{ fontWeight: 800, width: 150 }}>الكمية المضافة</TableCell>
-                                <TableCell sx={{ fontWeight: 800, width: 150 }}>الوحدة المختارة</TableCell>
+                                <TableCell sx={{ fontWeight: 800, width: 100 }}>الكمية المضافة</TableCell>
+                                <TableCell sx={{ fontWeight: 800, width: 100 }}>الوحدة المختارة</TableCell>
                                 <TableCell sx={{ fontWeight: 800 }}>إجراء</TableCell>
                             </TableRow>
                         </TableHead>

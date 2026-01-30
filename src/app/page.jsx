@@ -1,5 +1,6 @@
 "use client";
-import React, { useState, useEffect, useCallback } from "react";
+
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Container,
   Typography,
@@ -13,15 +14,17 @@ import DebtModal from "./components/debtModal";
 import ProductsTable from "./components/productsTable";
 import BarcodeScanner from "./components/BarcodeScanner";
 import ProductSelectDialog from "./components/productSelectDialog";
-import ReceiptModal from "./components/receiptModal";
-
 import { useProducts } from "./hooks/useProducts";
 import { useCheckout } from "./hooks/useCheckout";
 import CustomDialog from "./components/common/CustomDialog";
 
 const CheckoutPage = () => {
   const { products, setProducts, decreaseStock, restoreStock } = useProducts();
-  const { items, setItems, total, setTotal, addItem, removeItem, clearCart } = useCheckout();
+  const { items, setItems, addItem, removeItem, clearCart } = useCheckout();
+
+  const total = useMemo(() => {
+    return items.reduce((acc, item) => acc + (item.total ?? item.price * item.quantity), 0);
+  }, [items]);
 
   const [showSearch, setShowSearch] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
@@ -52,12 +55,6 @@ const CheckoutPage = () => {
     const options = localStorage.getItem("settings-options");
     if (options) setSettingsOptions(JSON.parse(options));
   }, []);
-
-  // ✅ مهم: تحديث total تلقائيًا عند تغير items
-  useEffect(() => {
-    const newTotal = items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-    setTotal(newTotal);
-  }, [items, setTotal]);
 
   const resetSelection = () => {
     setSelectedProduct(null);
@@ -258,7 +255,6 @@ const CheckoutPage = () => {
             items={items}
             setItems={setItems}
             setShowSearch={setShowSearch}
-            setTotal={setTotal}
             onDelete={handleDeleteItem}
           />
         </Box>

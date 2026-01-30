@@ -6,6 +6,8 @@ import { getProductModel } from "@/app/lib/models/Product";
 import { getWinningModel } from "@/app/lib/models/Winning";
 
 export async function POST(req) {
+  let session;
+
   try {
     const user = verifyToken(req.headers);
     if (!user)
@@ -25,12 +27,41 @@ export async function POST(req) {
       return NextResponse.json({ error: "يجب إرسال عناصر" }, { status: 400 });
     }
 
+    // --- 15-DAY RETURN VALIDATION ---
+    const fifteenDaysAgo = new Date();
+    fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
+
+    // Fetch all sales for the last 15 days
+    const recentSales = await Winning.find({
+      transactionType: "in",
+      date: { $gte: fifteenDaysAgo },
+    }).lean();
+
+    // Verify each item was sold in the last 15 days
+    for (const item of items) {
+      const { name } = item;
+      const wasSoldRecently = recentSales.some((sale) =>
+        sale.reason.includes(name)
+      );
+
+      if (!wasSoldRecently) {
+        return NextResponse.json(
+          { error: `عذراً، المنتج "${name}" لم يتم بيعه خلال آخر 15 يوم، لذا لا يمكن عمل مرتجع له.` },
+          { status: 400 }
+        );
+      }
+    }
+    // --------------------------------
+
     const now = new Date();
     const expiredItems = [];
+    const notFound = [];
     let totalReturnCost = 0;
     const reasons = [];
 
-    const session = await conn.startSession();
+    const threshold = Number(await getSetting(conn, "lowStockThreshold", 5));
+
+    session = await conn.startSession();
     session.startTransaction();
 
     try {
@@ -48,10 +79,16 @@ export async function POST(req) {
 
         const product = await Product.findOne({ name }).session(session);
         if (!product) {
-          console.warn(`المنتج "${name}" غير موجود`);
+          notFound.push(name);
           continue;
         }
 
+        // التأكد من الوحدة
+        if (!product.unitOptions || !product.unitOptions.includes(unit)) {
+          throw new Error(`الوحدة "${unit}" غير متاحة للمنتج "${name}"`);
+        }
+
+        // التأكد من صلاحية المنتج
         if (product.expiryDate && new Date(product.expiryDate) < now) {
           expiredItems.push(name);
           continue;
@@ -63,20 +100,27 @@ export async function POST(req) {
           );
         }
 
+        // تحويل الكمية حسب الوحدة
         let quantityToIncrement = parsedQuantity;
 
-        if (unit !== product.unit && product.unitConversion) {
+        if (unit !== product.unit) {
+          if (!product.unitConversion) {
+            throw new Error(`المنتج "${name}" لا يدعم تحويل الوحدة "${unit}"`);
+          }
           quantityToIncrement = parsedQuantity / product.unitConversion;
         }
+
+        if (!Number.isFinite(quantityToIncrement) || quantityToIncrement <= 0) {
+          throw new Error(`الكمية بعد التحويل غير صحيحة للمنتج "${name}"`);
+        }
+
+        // ضمان إن الكمية رقم
+        product.quantity = Number(product.quantity) || 0;
 
         const cost = quantityToIncrement * product.purchasePrice;
         totalReturnCost += cost;
 
         product.quantity += quantityToIncrement;
-
-        const threshold = Number(
-          await getSetting(conn, "lowStockThreshold", 5)
-        );
         product.isShortcoming = product.quantity < threshold;
 
         await product.save({ session });
@@ -84,12 +128,19 @@ export async function POST(req) {
         reasons.push(`${parsedQuantity} ${unit} ${product.name}`);
       }
 
+      // لو في منتجات غير موجودة
+      if (notFound.length > 0) {
+        throw new Error(`بعض المنتجات غير موجودة: ${notFound.join(", ")}`);
+      }
+
+      // لو في منتجات منتهية
       if (expiredItems.length > 0) {
         throw new Error(
           `بعض المنتجات منتهية الصلاحية: ${expiredItems.join(", ")}`
         );
       }
 
+      // تسجيل المصروف
       if (totalReturnCost > 0) {
         await Winning.create(
           [
@@ -105,7 +156,6 @@ export async function POST(req) {
       }
 
       await session.commitTransaction();
-      session.endSession();
 
       return NextResponse.json(
         {
@@ -116,7 +166,6 @@ export async function POST(req) {
       );
     } catch (innerError) {
       await session.abortTransaction();
-      session.endSession();
       return NextResponse.json({ error: innerError.message }, { status: 400 });
     }
   } catch (error) {
@@ -125,5 +174,13 @@ export async function POST(req) {
       { error: "حدث خطأ أثناء الحفظ" },
       { status: 500 }
     );
+  } finally {
+    if (session) {
+      try {
+        await session.endSession();
+      } catch (e) {
+        console.warn("Failed to end session:", e);
+      }
+    }
   }
 }
