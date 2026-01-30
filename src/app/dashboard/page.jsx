@@ -413,26 +413,6 @@ const Dashboard = () => {
         </Button>
       </Box>
 
-      {/* Test Redux UI */}
-      <Box sx={{ p: 2, border: '1px dashed grey', borderRadius: 2 }}>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>Test 3D Loader (Redux)</Typography>
-        <Stack direction="row" spacing={2}>
-          <Button variant="outlined" onClick={() => {
-            dispatch(setLoading(true));
-            setTimeout(() => dispatch(setLoading(false)), 3000);
-          }}>Test Loading (3s)</Button>
-
-          <Button variant="outlined" color="success" onClick={() => {
-            dispatch(setNotification({ type: 'success', message: 'Operation Successful!' }));
-            setTimeout(() => dispatch(clearNotification()), 3000);
-          }}>Test Success (3s)</Button>
-
-          <Button variant="outlined" color="error" onClick={() => {
-            dispatch(setNotification({ type: 'error', message: 'Something went wrong!' }));
-            setTimeout(() => dispatch(clearNotification()), 3000);
-          }}>Test Error (3s)</Button>
-        </Stack>
-      </Box>
 
       {/* Daily Logs */}
       <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>

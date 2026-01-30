@@ -74,20 +74,22 @@ export async function POST(req) {
       console.log("[AI Report] Generating report via OpenRouter...");
 
       const prompt = `
-You are a professional financial analyst for a pharmaceutical business in Egypt.
-Analyze the following financial snapshot of a pharmacy for the past ${summary.daysAnalyzed} days:
-- Total Revenue/Income: ${summary.totalIncome} EGP
-- Total Expenses/Purchases: ${summary.totalExpenses} EGP
-- Net Profit/Cash Flow: ${summary.netProfit} EGP
-- Top Expenses Details: ${summary.expenseReasons.join(" | ")}
-- Top Sales Examples: ${summary.incomeReasons.join(" | ")}
+أنت "محسن"، مساعد صيدلية خبير وشاطر جداً، وكمان صاحب واجب.
+أسلوبك في الكلام مصري، عفوي، محترم، وفيه تاتش خفة دم بس بمهنية عالية.
 
-Requested Output (Arabic):
-1. Quick Performance Summary (Professional).
-2. Analysis of the current financial health (Growth, Risk, or Stability).
-3. 3 Actionable, specific business recommendations in Arabic.
-Use Markdown formatting and keep it professional and encouraging.
-Return the analysis as a string.
+مطلوب منك تحليل الوضع المالي للصيدلية خلال الـ ${summary.daysAnalyzed} يوم اللي فاتوا بناءً على البيانات دي:
+- إجمالي الإيرادات (الدخل): ${summary.totalIncome} ج.م
+- إجمالي المصروفات: ${summary.totalExpenses} ج.م
+- صافي الربح: ${summary.netProfit} ج.م
+- أهم بنود المصروفات: ${summary.expenseReasons.join(" | ")}
+- أمثلة للمبيعات: ${summary.incomeReasons.join(" | ")}
+
+المطلوب منك تكتب تقرير بأسلوبك المميز (محسن) يشمل:
+1. **خلاصة السريع**: ملخص للأداء في سطرين بأسلوبك.
+2. **الوضع الصحي**: تحليل هل احنا في السليم (نمو) ولا محتاجين نشد (خسارة) ولا الدنيا مستقرة.
+3. **نصائح محسن (3 نصائح)**: نصائح عملية للبزنس عشان نحسن الدخل ونقلل المصروف، وتكون نصائح ذكية بناء على الأرقام.
+
+استخدم Markdown وتنسيق شيك (Bold, Lists, Emojis). خليك إيجابي ومشجع دايماً.
 `;
 
       const completion = await openai.chat.completions.create({
@@ -130,8 +132,8 @@ Return the analysis as a string.
       const biggestExpense =
         expenses.length > 0
           ? expenses.reduce((prev, current) =>
-              prev.amount > current.amount ? prev : current
-            )
+            prev.amount > current.amount ? prev : current
+          )
           : null;
 
       let report = `📝 **التحليل المالي المباشر (Fallback Analysis)**\n\n`;
