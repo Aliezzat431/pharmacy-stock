@@ -40,11 +40,9 @@ const PAGE_LABELS = {
   "/inventory-report": "النواقص والانتهاء",
   "/dashboard": "تقارير الأرباح",
   "/activities": "سجل النشاطات",
-  "/sessions": "جلسات العمل",
   "/settings": "الإعدادات",
   "/documentation": "دليل الإستخدام",
-  "/payroll": "المرتبات",
-  "/employees": "الموظفين",
+"/payroll": "المرتبات",
   "/new-tab": "علامة تبويب جديدة"
 };
 
