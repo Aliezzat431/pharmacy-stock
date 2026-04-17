@@ -2,29 +2,33 @@
 
 import React, { useState } from 'react';
 import Image from 'next/image';
-import {
-  Container,
-  TextField,
-  Button,
-  Typography,
-  Box,
-  Paper,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  CircularProgress,
-  FormControlLabel,
-  Checkbox,
-} from '@mui/material';
+import { useRouter } from 'next/navigation';
 import axios from 'axios';
+import { toast } from 'sonner';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Loader2, ShieldCheck, User as UserIcon, Lock } from "lucide-react";
 
 const Login = () => {
   const [isRegister, setIsRegister] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [pharmacyId, setPharmacyId] = useState('1');
-  const [popup, setPopup] = useState({ open: false, type: 'info', message: '' });
   const [loading, setLoading] = useState(false);
   const [registerBlocked, setRegisterBlocked] = useState(false);
   const [pharmacyName, setPharmacyName] = useState("Smart Pharma");
@@ -39,14 +43,11 @@ const Login = () => {
     }
   }, []);
 
-  const showPopup = (type, message) => {
-    setPopup({ open: true, type, message });
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
     if (!username.trim() || !password.trim()) {
-      showPopup('error', 'الرجاء إدخال اسم المستخدم وكلمة المرور');
+      toast.error('الرجاء إدخال اسم المستخدم وكلمة المرور');
       return;
     }
 
@@ -54,35 +55,32 @@ const Login = () => {
     const payload = isRegister
       ? { username, password, pharmacyId, masterPin }
       : { username, password, pharmacyId };
-    console.log(payload);
 
     setLoading(true);
     try {
       const res = await axios.post(endpoint, payload);
 
       if (res.data.success) {
-        // Redux/Cookie handles auth status now, no need to save token manually
-        showPopup('success', isRegister ? '✅ تم التسجيل بنجاح' : '✅ تم تسجيل الدخول بنجاح');
+        toast.success(isRegister ? '✅ تم التسجيل بنجاح' : '✅ تم تسجيل الدخول بنجاح');
         setTimeout(() => window.location.reload(), 1500);
       } else {
         const msg = res.data.message || 'حدث خطأ غير معروف';
         if (isRegister && msg.includes('User limit reached')) {
           setRegisterBlocked(true);
           setIsRegister(false);
-          showPopup('error', '🚫 لا يمكن إنشاء مستخدمين جدد. الرجاء التواصل مع المسؤول.');
+          toast.error('🚫 لا يمكن إنشاء مستخدمين جدد. الرجاء التواصل مع المسؤول.');
         } else {
-          showPopup('error', msg);
+          toast.error(msg);
         }
       }
     } catch (err) {
-      const serverMessage =
-        err?.response?.data?.message || 'حدث خطأ أثناء الاتصال بالخادم';
+      const serverMessage = err?.response?.data?.message || 'حدث خطأ أثناء الاتصال بالخادم';
       if (isRegister && serverMessage.includes('User limit reached')) {
         setRegisterBlocked(true);
         setIsRegister(false);
-        showPopup('error', '🚫 لا يمكن إنشاء مستخدمين جدد. الرجاء التواصل مع المسؤول.');
+        toast.error('🚫 لا يمكن إنشاء مستخدمين جدد. الرجاء التواصل مع المسؤول.');
       } else {
-        showPopup('error', serverMessage);
+        toast.error(serverMessage);
       }
     } finally {
       setLoading(false);
@@ -90,145 +88,150 @@ const Login = () => {
   };
 
   return (
-    <Container maxWidth="sm" dir="rtl" sx={{ mt: 8 }}>
-      <Paper elevation={4} sx={{
-        p: 4,
-        borderRadius: '24px',
-        textAlign: 'center',
-        bgcolor: 'var(--glass-bg)',
+    <div className="min-h-screen flex items-center justify-center p-4 bg-background/50 backdrop-blur-sm">
+      <Card className="w-full max-w-md glass-morphism border-none shadow-2xl relative overflow-hidden">
+        {/* Top Decorative Gradient */}
+        <div className="absolute top-0 left-0 right-0 h-1.5 premium-gradient" />
 
-        backdropFilter: 'blur(10px)',
-        border: '1px solid var(--glass-border)'
-      }}>
-        <Box sx={{ mb: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-
-          <Typography variant="h4" sx={{ fontWeight: 900, color: 'var(--primary)' }}>
-            {pharmacyName}
-          </Typography>
-          <Typography variant="body1" color="text.secondary" sx={{ fontWeight: 600 }}>
-            نظام إدارة الصيدلية المتكامل
-          </Typography>
-        </Box>
-
-        <Typography variant="h5" align="center" gutterBottom sx={{ fontWeight: 700, mb: 3 }}>
-          {isRegister ? 'إنشاء حساب جديد' : 'تسجيل الدخول'}
-        </Typography>
-
-        {!registerBlocked && (
-          <Box component="form" onSubmit={handleSubmit} noValidate>
-            <TextField
-              label="اسم المستخدم"
-              variant="outlined"
-              fullWidth
-              margin="normal"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
+        <CardHeader className="text-center space-y-4 pt-8">
+          <div className="mx-auto flex justify-center items-center h-20 w-20 rounded-3xl bg-primary/10 border border-primary/20 shadow-inner">
+            <Image
+              src="/شعار صيدلية عصري وبسيط بالأزرق والأخضر.gif"
+              alt="Logo"
+              width={64}
+              height={64}
+              className="drop-shadow-lg"
             />
-            <TextField
-              label="كلمة المرور"
-              type="password"
-              variant="outlined"
-              fullWidth
-              margin="normal"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+          </div>
+          <div className="space-y-1">
+            <CardTitle className="text-3xl font-black tracking-tight text-primary uppercase">
+              {pharmacyName}
+            </CardTitle>
+            <CardDescription className="text-xs font-bold uppercase tracking-widest opacity-70">
+              نظام إدارة الصيدلية المتكامل
+            </CardDescription>
+          </div>
+        </CardHeader>
 
-            <TextField
-              select
-              label="اختر الصيدلية"
-              value={pharmacyId}
-              onChange={(e) => setPharmacyId(e.target.value)}
-              SelectProps={{ native: true }}
-              fullWidth
-              margin="normal"
-              sx={{ mb: 2 }}
-            >
-              <option value="1">صيدلية 1 (الرئيسية)</option>
-              <option value="2">صيدلية 2 (الفرعية)</option>
-            </TextField>
-            {isRegister && (
-              <Box sx={{ mt: 1, textAlign: 'right' }}>
-                {isMasterRequested && (
-                  <TextField
-                    label="رقم الماستر السري"
-                    type="password"
-                    variant="outlined"
-                    fullWidth
-                    margin="normal"
-                    value={masterPin}
-                    onChange={(e) => setMasterPin(e.target.value)}
-                    helperText="أدخل الكود السري للحصول على كامل الصلاحيات"
+        <CardContent className="space-y-6 pt-2 pb-8 px-8">
+          <div className="text-center">
+            <h3 className="text-lg font-bold">
+              {isRegister ? 'إنشاء حساب جديد' : 'تسجيل الدخول'}
+            </h3>
+          </div>
+
+          {!registerBlocked && (
+            <form onSubmit={handleSubmit} className="space-y-4" dir="rtl">
+              <div className="space-y-2">
+                <div className="relative">
+                  <UserIcon className="absolute right-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="اسم المستخدم"
+                    className="pr-10 h-12 bg-muted/30 border-muted-foreground/20 focus:border-primary transition-all rounded-xl font-bold"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    required
                   />
-                )}
-                <FormControlLabel
-                  control={
-                    <Checkbox
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="relative">
+                  <Lock className="absolute right-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    type="password"
+                    placeholder="كلمة المرور"
+                    className="pr-10 h-12 bg-muted/30 border-muted-foreground/20 focus:border-primary transition-all rounded-xl font-bold"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Select
+                  value={pharmacyId}
+                  onValueChange={setPharmacyId}
+                >
+                  <SelectTrigger className="h-12 bg-muted/30 border-muted-foreground/20 rounded-xl font-bold">
+                    <SelectValue placeholder="اختر الصيدلية" />
+                  </SelectTrigger>
+                  <SelectContent className="glass-morphism rounded-xl border-border/50">
+                    <SelectItem value="1" className="font-bold">صيدلية 1 (الرئيسية)</SelectItem>
+                    <SelectItem value="2" className="font-bold">صيدلية 2 (الفرعية)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {isRegister && (
+                <div className="space-y-4 pt-2">
+                  <div className="flex items-center space-x-2 space-x-reverse">
+                    <input
+                      type="checkbox"
+                      id="master-check"
                       checked={isMasterRequested}
                       onChange={(e) => setIsMasterRequested(e.target.checked)}
-                      color="primary"
+                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                     />
-                  }
-                  label="التسجيل كمسؤول للمجال (Master)"
-                />
+                    <label
+                      htmlFor="master-check"
+                      className="text-xs font-bold cursor-pointer select-none opacity-80"
+                    >
+                      التسجيل كمسؤول للمجال (Master)
+                    </label>
+                  </div>
 
-              </Box>
-            )}
-            <Button
-              type="submit"
-              variant="contained"
-              fullWidth
-              sx={{ mt: 2 }}
-              color="primary"
-              disabled={loading}
-            >
-              {loading ? <CircularProgress size={24} /> : isRegister ? 'تسجيل' : 'دخول'}
-            </Button>
-          </Box>
-        )}
+                  {isMasterRequested && (
+                    <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+                      <Input
+                        type="password"
+                        placeholder="رقم الماستر السري"
+                        className="h-12 bg-muted/30 border-muted-foreground/20 rounded-xl font-bold"
+                        value={masterPin}
+                        onChange={(e) => setMasterPin(e.target.value)}
+                      />
+                      <p className="text-[10px] text-muted-foreground mt-1 mr-1 font-bold">
+                        أدخل الكود السري للحصول على كامل الصلاحيات
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                className="w-full h-12 text-sm font-black uppercase tracking-widest rounded-xl premium-gradient shadow-lg shadow-primary/25 hover:shadow-primary/40 transition-all duration-300 group"
+                disabled={loading}
+              >
+                {loading ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <>
+                    {isRegister ? 'تسجيل' : 'دخول'}
+                    <ShieldCheck className="mr-2 h-4 w-4 transition-transform group-hover:scale-110" />
+                  </>
+                )}
+              </Button>
+            </form>
+          )}
+        </CardContent>
 
         {!registerBlocked && (
-          <Box mt={2} textAlign="center">
-            <Typography
-              variant="body2"
-              sx={{ cursor: 'pointer', color: 'primary.main' }}
-              onClick={() => {
-                setIsRegister(!isRegister);
-                setPopup({ open: false, message: '' });
-              }}
+          <CardFooter className="pb-8 pt-0 flex flex-col space-y-4">
+            <div className="w-full h-px bg-gradient-to-r from-transparent via-border/50 to-transparent" />
+            <button
+              onClick={() => setIsRegister(!isRegister)}
+              className="text-xs font-bold text-primary hover:underline transition-all"
             >
               {isRegister
                 ? 'هل لديك حساب؟ تسجيل الدخول'
                 : 'ليس لديك حساب؟ إنشاء حساب جديد'}
-            </Typography>
-          </Box>
+            </button>
+          </CardFooter>
         )}
-      </Paper>
-
-      {/* Popup Dialog */}
-      <Dialog
-        open={popup.open}
-        onClose={() => setPopup({ ...popup, open: false })}
-      >
-        <DialogTitle>
-          {popup.type === 'success'
-            ? 'نجاح'
-            : popup.type === 'error'
-              ? 'خطأ'
-              : 'معلومة'}
-        </DialogTitle>
-        <DialogContent>
-          <Typography>{popup.message}</Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPopup({ ...popup, open: false })}>
-            إغلاق
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Container>
+      </Card>
+    </div>
   );
 };
 

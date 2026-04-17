@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
-import { getDb } from '@/app/lib/db';
-import { getUserModel } from '@/app/lib/models/User';
+import { supabase } from '@/app/lib/supabase';
+import { logActivity } from '@/app/lib/logActivity';
 
 export async function POST(request) {
   try {
@@ -22,21 +22,16 @@ export async function POST(request) {
       );
     }
 
-    if (!pharmacyId || (pharmacyId !== "1" && pharmacyId !== "2")) {
-      return NextResponse.json(
-        { success: false, message: "pharmacyId غير صالح" },
-        { status: 400 }
-      );
-    }
+    // ====== Supabase Find User ======
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('username', username)
+      .eq('password', password) // Note: In production use bcrypt
+      .eq('active', true)
+      .single();
 
-    // ====== DB & user ======
-    const conn = await getDb(pharmacyId);
-    const User = getUserModel(conn);
-console.log({ username, password });
-    // لو عندك hashing للباسورد لازم تستخدم bcrypt.compare بدل البحث المباشر
-    const user = await User.findOne({ username, password });
-
-    if (!user) {
+    if (userError || !user) {
       return NextResponse.json(
         { success: false, message: "اسم المستخدم أو كلمة المرور غير صحيحة" },
         { status: 401 }
@@ -54,7 +49,7 @@ console.log({ username, password });
     const token = jwt.sign(
       {
         username: user.username,
-        userId: user._id.toString(),
+        userId: user.id.toString(),
         pharmacyId: pharmacyId || "1",
         role: user.role
       },
@@ -69,7 +64,7 @@ console.log({ username, password });
         user: {
           username: user.username,
           role: user.role,
-          userId: user._id
+          userId: user.id
         }
       },
       { status: 200 }
@@ -81,6 +76,40 @@ console.log({ username, password });
       sameSite: 'strict',
       maxAge: 60 * 60 * 24 * 7, // 7 days
       path: '/',
+    });
+
+    // ====== Session Management ======
+    
+    // 1. Close any existing active sessions for this user
+    await supabase
+      .from('sessions')
+      .update({ status: 'closed', end_time: new Date().toISOString() })
+      .eq('user_id', user.id)
+      .eq('status', 'active');
+
+    // 2. Determine Shift Type
+    const currentHour = new Date().getHours();
+    const isMorning = currentHour >= 6 && currentHour < 18;
+    const shiftType = isMorning ? 'morning' : 'night';
+
+    // 3. Create new active session
+    await supabase.from('sessions').insert({
+      user_id: user.id,
+      username: user.username,
+      start_time: new Date().toISOString(),
+      shift_type: shiftType,
+      status: 'active',
+      device_info: request.headers.get('user-agent') || 'unknown',
+      pharmacy_id: pharmacyId || "1"
+    });
+
+    // Log activity
+    await logActivity(null, {
+      action: 'login',
+      userId: user.id,
+      username: user.username,
+      description: `تسجيل دخول المستخدم ${user.username} (${shiftType === 'morning' ? 'صباحي' : 'مسائي'})`,
+      metadata: { role: user.role, shiftType }
     });
 
     return response;

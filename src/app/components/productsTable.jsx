@@ -1,10 +1,34 @@
-import React, { useEffect, useState, useMemo } from "react";
+"use client";
+
+import React, { useEffect, useState } from "react";
 import {
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Paper, TextField, Select, MenuItem, IconButton, Box, Typography, Dialog, Button
-} from "@mui/material";
-import DeleteIcon from "@mui/icons-material/Delete";
-import { typesWithUnits } from "../lib/unitOptions";
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Trash2, Plus, Receipt, PackageSearch } from "lucide-react";
+import { typesWithUnits, getMultiplier } from "../lib/unitOptions";
+import { cn } from "@/lib/utils";
 
 const ProductsTable = ({ items, setItems, setShowSearch, onDelete }) => {
   const [deleteIndex, setDeleteIndex] = useState(null);
@@ -15,36 +39,31 @@ const ProductsTable = ({ items, setItems, setShowSearch, onDelete }) => {
     agel: ["جنيه"],
   };
 
+
+
   const recalculateItem = (item) => {
     const full = item.fullProduct || {};
     const type = item.type || full.type;
     const price = parseFloat(item.price ?? full.price ?? 0);
     const quantity = parseFloat(item.quantity ?? 0);
     const unit = item.unit;
+    const pillsPerStrip = Number(item.pillsPerStrip || 10);
 
     if (type === "agel") {
       return { ...item, total: quantity * price, remaining: "-" };
     }
 
-    const unitConversion = parseFloat(full.unitConversion ?? item.unitConversion ?? 1);
     const originalQuantity = parseFloat(full.quantity ?? 0);
+    const multiplier = getMultiplier(full, unit, pillsPerStrip);
 
-    const [small, big] = knownUnits[type] || [];
-    const conversions = small && big
-      ? { [big]: 1, [small]: 1 / unitConversion }
-      : { [unit]: 1 };
-
-    const factor = conversions[unit] ?? 1;
-    const sold = quantity * factor;
+    const sold = quantity / multiplier;
     const remainingQty = Math.max(0, originalQuantity - sold);
 
     const basePrice = parseFloat(full.price || 0);
-    const unitPrice = unit === small && unitConversion > 0
-      ? basePrice / unitConversion
-      : basePrice;
+    const unitPrice = basePrice / multiplier;
 
     const total = quantity * unitPrice;
-    const remaining = big ? `${remainingQty.toFixed(4)} ${big}` : `${remainingQty.toFixed(4)}`;
+    const remaining = `${remainingQty.toFixed(2)}`;
 
     return { ...item, total, remaining };
   };
@@ -66,6 +85,14 @@ const ProductsTable = ({ items, setItems, setShowSearch, onDelete }) => {
   const handleUnitChange = (index, newUnit) => {
     const updated = [...items];
     updated[index] = { ...updated[index], unit: newUnit };
+    recalcAndSet(updated);
+  };
+
+  const handlePillsChange = (index, val) => {
+    const qty = Number(val);
+    if (qty <= 0) return;
+    const updated = [...items];
+    updated[index] = { ...updated[index], pillsPerStrip: qty };
     recalcAndSet(updated);
   };
 
@@ -130,51 +157,53 @@ const ProductsTable = ({ items, setItems, setShowSearch, onDelete }) => {
     }
   };
 
-  // ⚠️ مهم جدًا: أول مرة نجيب items ونحسبها
   useEffect(() => {
     recalcAndSet(items);
   }, []);
 
   return (
-    <Box className="glass-card" sx={{ p: 4, mb: 4, mt: 3 }}>
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 4 }}>
-        <Typography variant="h5" sx={{ fontWeight: 800, color: "var(--primary)", display: "flex", alignItems: "center", gap: 1 }}>
-          🧾 فاتورة المبيعات
-        </Typography>
-        <Typography variant="body2" sx={{ opacity: 0.7, color: 'text.secondary' }}>
-          {items.length} منتجات
-        </Typography>
-      </Box>
+    <div className="glass-morphism rounded-[32px] p-6 mb-6 mt-4 border-none shadow-2xl relative overflow-hidden">
+      <div className="absolute top-0 left-0 right-0 h-1 premium-gradient opacity-50" />
 
-      <TableContainer sx={{ maxHeight: 600, borderRadius: 3, overflow: "hidden" }}>
-        <Table stickyHeader className="modern-table">
-          <TableHead>
-            <TableRow>
-              {["المنتج", "سعر الوحدة", "الكمية", "الوحدة", "الصلاحية", "المخزون", "الإجمالي", "الإجراء"].map((h, i) => (
-                <TableCell key={i} align="center" sx={{
-                  fontWeight: 800,
-                  letterSpacing: "0.3px",
-                  color: "var(--primary)",
-                  whiteSpace: "nowrap"
-                }}>
+      <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center gap-3">
+          <div className="p-3 rounded-2xl bg-primary/10 border border-primary/20">
+            <Receipt className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <h2 className="text-xl font-black tracking-tight uppercase">🧾 فاتورة المبيعات</h2>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest leading-none mt-1">
+              Sales Invoice Management
+            </p>
+          </div>
+        </div>
+        <div className="px-4 py-2 rounded-full bg-muted/50 border border-border/50 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+          {items.length} Products
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-border/40 overflow-hidden bg-background/30 backdrop-blur-md">
+        <Table className="relative">
+          <TableHeader className="bg-muted/50">
+            <TableRow className="hover:bg-transparent border-border/40">
+              {["المنتج", "سعر الوحدة", "الكمية", "الوحدة", "الصلاحية", "المخزون", "الإجمالي", ""].map((h, i) => (
+                <TableHead key={i} className="text-center font-black text-[11px] uppercase tracking-wider text-primary py-4">
                   {h}
-                </TableCell>
+                </TableHead>
               ))}
             </TableRow>
-          </TableHead>
-
+          </TableHeader>
           <TableBody>
             {items.map((item, i) => {
               const full = item.fullProduct || {};
+              const recalculated = recalculateItem(item);
+              const remainingNumber = parseFloat(recalculated.remaining);
+              const isLowStock = !isNaN(remainingNumber) && remainingNumber < 5;
+
               const unitOptions =
                 item.unitOptions?.map((u) => (typeof u === "string" ? u : u.value)) ||
                 full.unitOptions?.map((u) => (typeof u === "string" ? u : u.value)) ||
                 (full.unit ? [full.unit] : []);
-
-              const recalculated = recalculateItem(item);
-
-              const remainingNumber = parseFloat(recalculated.remaining);
-              const remainingColor = !isNaN(remainingNumber) && remainingNumber < 5 ? "error" : "text.secondary";
 
               return (
                 <TableRow
@@ -183,117 +212,133 @@ const ProductsTable = ({ items, setItems, setShowSearch, onDelete }) => {
                   onDragStart={(e) => handleRowDragStart(e, i)}
                   onDragOver={(e) => handleRowDragOver(e, i)}
                   onDrop={(e) => handleRowDrop(e, i)}
-                  sx={{
-                    bgcolor: dragOverRow === i ? "rgba(var(--primary-rgb), 0.15)" : "transparent",
-                    transition: "all 0.2s ease",
-                    "&:hover": { bgcolor: "rgba(255, 255, 255, 0.05)" },
-                    "& td": { borderBottom: "1px solid var(--glass-border)" },
-                  }}
+                  className={cn(
+                    "transition-all duration-300 border-border/20 group",
+                    dragOverRow === i ? "bg-primary/10" : "hover:bg-muted/30"
+                  )}
                 >
-                  <TableCell sx={{ fontWeight: 600 }}>{item.name}</TableCell>
+                  <TableCell className="font-bold text-sm py-4">{item.name}</TableCell>
 
-                  <TableCell sx={{ opacity: 0.8 }}>
+                  <TableCell className="text-center font-bold text-muted-foreground/80">
                     {(recalculated.total / (item.quantity || 1)).toFixed(2)}
                   </TableCell>
 
-                  <TableCell>
-                    <TextField
+                  <TableCell className="text-center">
+                    <Input
                       type="number"
-                      size="small"
                       value={item.quantity}
                       onChange={(e) => handleQuantityChange(i, e.target.value)}
-                      sx={{ width: 80, "& input": { textAlign: "center" } }}
+                      className="w-20 mx-auto text-center h-9 font-black bg-muted/20 border-border/30 rounded-lg focus:border-primary transition-all"
                     />
                   </TableCell>
 
-                  <TableCell>
+                  <TableCell className="text-center align-top relative py-4">
                     <Select
-                      size="small"
                       value={item.unit}
-                      onChange={(e) => handleUnitChange(i, e.target.value)}
-                      sx={{ minWidth: 90 }}
+                      onValueChange={(val) => handleUnitChange(i, val)}
                     >
-                      {unitOptions.map((u, idx) => (
-                        <MenuItem key={idx} value={u}>
-                          {u}
-                        </MenuItem>
-                      ))}
+                      <SelectTrigger className="w-24 mx-auto h-9 font-bold bg-muted/20 border-border/30 rounded-lg">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="glass-morphism rounded-xl">
+                        {unitOptions.map((u, idx) => (
+                          <SelectItem key={idx} value={u} className="font-bold">{u}</SelectItem>
+                        ))}
+                      </SelectContent>
                     </Select>
+                    
+                    {["قرص", "كبسولة", "قطعة", "لبوسة"].includes(item.unit) && (
+                      <div className="flex items-center justify-center gap-1 mt-2">
+                        <Input
+                          type="number"
+                          value={item.pillsPerStrip || 10}
+                          onChange={(e) => handlePillsChange(i, e.target.value)}
+                          className="w-12 h-6 text-center text-[10px] font-black bg-muted/20 border-border/30 rounded focus:border-primary p-0"
+                          title="عدد الأقراص في الشريط الواحد"
+                        />
+                        <span className="text-[9px] text-muted-foreground font-bold">قرص/شريط</span>
+                      </div>
+                    )}
                   </TableCell>
 
-                  <TableCell sx={{ fontSize: 13, opacity: 0.7 }}>
+                  <TableCell className="text-center text-[11px] font-bold text-muted-foreground/70">
                     {item.expiry ? new Date(item.expiry).toLocaleDateString("ar-EG") : "—"}
                   </TableCell>
 
-                  <TableCell>
-                    <Typography variant="body2" color={remainingColor} sx={{ fontWeight: 600 }}>
+                  <TableCell className="text-center">
+                    <span className={cn(
+                      "px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-tight",
+                      isLowStock ? "bg-destructive/10 text-destructive border border-destructive/20" : "bg-primary/10 text-primary border border-primary/20"
+                    )}>
                       {recalculated.remaining}
-                    </Typography>
+                    </span>
                   </TableCell>
 
-                  <TableCell sx={{ fontWeight: 800, color: "var(--primary)", fontSize: 15 }}>
+                  <TableCell className="text-center font-black text-primary text-base">
                     {recalculated.total.toFixed(2)}
                   </TableCell>
 
-                  <TableCell>
-                    <IconButton
-                      size="small"
+                  <TableCell className="text-center">
+                    <Button
+                      variant="ghost"
+                      size="icon"
                       onClick={() => setDeleteIndex(i)}
-                      sx={{ bgcolor: "rgba(229,57,53,0.1)", "&:hover": { bgcolor: "rgba(229,57,53,0.2)" } }}
+                      className="h-8 w-8 text-destructive/50 hover:text-destructive hover:bg-destructive/10 rounded-lg transition-all"
                     >
-                      <DeleteIcon fontSize="small" color="error" />
-                    </IconButton>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </TableCell>
                 </TableRow>
               );
             })}
 
-            <TableRow onClick={() => setShowSearch(true)} sx={{ cursor: "pointer", "& td": { border: 0 } }}>
-              <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
-                <Box
-                  sx={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 1.2,
-                    px: 3,
-                    py: 1.4,
-                    borderRadius: 999,
-                    fontWeight: 700,
-                    color: "var(--primary)",
-                    background: "var(--glass-bg)",
-                    border: "1px dashed var(--glass-border)",
-                    transition: "all 0.25s ease",
-                    cursor: "pointer",
-                    "&:hover": {
-                      background: "rgba(var(--primary-rgb), 0.1)",
-                      borderColor: "var(--primary)",
-                      transform: "translateY(-2px)",
-                    },
-                  }}
-                >
-                  <Typography sx={{ fontSize: 20 }}>➕</Typography>
-                  <Typography sx={{ letterSpacing: "0.4px" }}>أضف منتج جديد للقائمة</Typography>
-                </Box>
+            <TableRow
+              onClick={() => setShowSearch(true)}
+              className="hover:bg-muted/50 transition-colors cursor-pointer border-none"
+            >
+              <TableCell colSpan={8} className="py-8">
+                <div className="flex flex-col items-center justify-center gap-2 group">
+                  <div className="h-14 w-14 rounded-full border-2 border-dashed border-primary/30 flex items-center justify-center text-primary/50 group-hover:scale-110 group-hover:border-primary group-hover:text-primary transition-all duration-300 shadow-inner">
+                    <Plus className="h-6 w-6" />
+                  </div>
+                  <span className="text-sm font-black text-primary opacity-60 group-hover:opacity-100 transition-opacity">أضف منتج جديد للقائمة</span>
+                </div>
               </TableCell>
             </TableRow>
-
           </TableBody>
         </Table>
-      </TableContainer>
+      </div>
 
-      <Dialog open={deleteIndex !== null} onClose={() => setDeleteIndex(null)}>
-        <Box p={4} textAlign="center">
-          <Typography variant="h6" fontWeight={700} gutterBottom>تأكيد الحذف</Typography>
-          <Typography sx={{ mb: 3, opacity: 0.8 }}>
-            هل أنت متأكد أنك تريد حذف هذا المنتج من الفاتورة؟
-          </Typography>
-          <Box display="flex" justifyContent="center" gap={2}>
-            <Button variant="contained" color="error" onClick={confirmDelete}>حذف</Button>
-            <Button variant="outlined" onClick={() => setDeleteIndex(null)}>إلغاء</Button>
-          </Box>
-        </Box>
+      <Dialog open={deleteIndex !== null} onOpenChange={(val) => !val && setDeleteIndex(null)}>
+        <DialogContent className="glass-morphism border-none rounded-[32px] p-8 max-w-sm">
+          <DialogHeader className="space-y-4 text-center">
+            <div className="mx-auto h-16 w-16 rounded-3xl bg-destructive/10 flex items-center justify-center border border-destructive/20">
+              <Trash2 className="h-8 w-8 text-destructive" />
+            </div>
+            <DialogTitle className="text-2xl font-black uppercase tracking-tight">تأكيد الحذف</DialogTitle>
+            <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-70">
+              Are you sure you want to remove this item?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="pt-4 flex gap-3">
+            <Button
+              variant="destructive"
+              className="flex-1 h-12 rounded-2xl font-black uppercase tracking-widest shadow-lg shadow-destructive/20"
+              onClick={confirmDelete}
+            >
+              حذف
+            </Button>
+            <Button
+              variant="secondary"
+              className="flex-1 h-12 rounded-2xl font-black uppercase tracking-widest"
+              onClick={() => setDeleteIndex(null)}
+            >
+              إلغاء
+            </Button>
+          </div>
+        </DialogContent>
       </Dialog>
-    </Box>
+    </div>
   );
 };
 

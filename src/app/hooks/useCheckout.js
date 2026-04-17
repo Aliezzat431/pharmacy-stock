@@ -1,8 +1,26 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 export const useCheckout = () => {
-    const [items, setItems] = useState([]);
-    const [total, setTotal] = useState(0);
+    const [items, setItems] = useState(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem('checkout_items');
+            return saved ? JSON.parse(saved) : [];
+        }
+        return [];
+    });
+    
+    const [total, setTotal] = useState(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem('checkout_total');
+            return saved ? JSON.parse(saved) : 0;
+        }
+        return 0;
+    });
+
+    useEffect(() => {
+        localStorage.setItem('checkout_items', JSON.stringify(items));
+        localStorage.setItem('checkout_total', JSON.stringify(total));
+    }, [items, total]);
 
     const addItem = useCallback((newItem) => {
         setItems((prev) => {
@@ -30,7 +48,7 @@ export const useCheckout = () => {
 
     return {
         items,
-        setItems, // Expose strict setter if needed, but prefer addItem/removeItem
+        setItems,
         total,
         setTotal,
         addItem,

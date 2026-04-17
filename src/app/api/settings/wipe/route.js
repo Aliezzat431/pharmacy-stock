@@ -1,16 +1,10 @@
-import { getDb } from "@/app/lib/db";
+import { supabase } from "@/app/lib/supabase";
 import { verifyToken } from "@/app/lib/verifyToken";
 import { NextResponse } from "next/server";
-import { getProductModel } from "@/app/lib/models/Product";
-import { getWinningModel } from "@/app/lib/models/Winning";
-import { getOrderModel } from "@/app/lib/models/Order";
-import { getDebtorModel } from "@/app/lib/models/Order";
 
 export async function POST(req) {
-  let session;
-
   try {
-    const user = verifyToken(req.headers);
+    const user = await verifyToken(req.headers);
     if (!user) {
       return NextResponse.json(
         { success: false, message: "Unauthorized" },
@@ -18,37 +12,22 @@ export async function POST(req) {
       );
     }
 
-    const conn = await getDb(user.pharmacyId);
-
-    const Product = getProductModel(conn);
-    const Winning = getWinningModel(conn);
-    const Order = getOrderModel(conn);
-    const Debtor = getDebtorModel(conn);
-
-    session = await conn.startSession();
-    session.startTransaction();
-
-    await Product.deleteMany({}, { session });
-    await Winning.deleteMany({}, { session });
-    await Order.deleteMany({}, { session });
-    await Debtor.deleteMany({}, { session });
-
-    await session.commitTransaction();
-    session.endSession();
+    // Clear all main tables
+    // batches is deleted by cascade if products are deleted, but let's be explicit if needed
+    await supabase.from('batches').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    await supabase.from('products').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    await supabase.from('winnings').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    await supabase.from('orders').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    await supabase.from('debtors').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
     return NextResponse.json({
       success: true,
-      message: "تم تصفير قاعدة البيانات بنجاح (الموديلات المحددة).",
+      message: "تم تصفير قاعدة البيانات بنجاح.",
     });
   } catch (error) {
-    if (session) {
-      await session.abortTransaction();
-      session.endSession();
-    }
-
     console.error("Wipe error:", error);
     return NextResponse.json(
-      { success: false, message: "حدث خطأ أثناء تصفير البيانات" },
+      { success: false, message: "حدث خطأ أثناء تصفير البيانات: " + error.message },
       { status: 500 }
     );
   }

@@ -1,12 +1,12 @@
-import { getDb } from "@/app/lib/db";
+import { supabase } from "@/app/lib/supabase";
 import { verifyToken } from "@/app/lib/verifyToken";
 import { NextResponse } from "next/server";
-import { getWinningModel } from "@/app/lib/models/Winning";
+import { logActivity } from "@/app/lib/logActivity";
 
 export async function POST(req) {
     try {
-        const user = verifyToken(req.headers);
-        if (!user) return NextResponse.json({ success: false }, { status: 401 });
+        const user = await verifyToken(req.headers);
+        if (!user) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
 
         if (user.role !== 'master') {
             return NextResponse.json(
@@ -18,8 +18,6 @@ export async function POST(req) {
         const body = await req.json();
         const { employeeName, totalAmount, reason, fundingSources } = body;
 
-        // fundingSources: [{ pharmacyId: "1", amount: 100 }, { pharmacyId: "2", amount: 200 }]
-
         if (!fundingSources || !Array.isArray(fundingSources)) {
             return NextResponse.json({ success: false, message: "مصادر التمويل مطلوبة" }, { status: 400 });
         }
@@ -27,16 +25,34 @@ export async function POST(req) {
         const results = [];
 
         for (const source of fundingSources) {
-            const conn = await getDb(source.pharmacyId);
-            const Winning = getWinningModel(conn);
+            const { data: transaction, error: winError } = await supabase
+                .from('winnings')
+                .insert({
+                    amount: source.amount,
+                    reason: `دفع مرتب/مكافأة لـ ${employeeName}: ${reason} (تم الدفع من صيدلية ${source.pharmacyId})`,
+                    transaction_type: 'out',
+                    date: new Date().toISOString()
+                })
+                .select()
+                .single();
 
-            const transaction = await Winning.create({
-                amount: source.amount,
-                reason: `دفع مرتب/مكافأة لـ ${employeeName}: ${reason} (تم الدفع من صيدلية ${source.pharmacyId})`,
-                transactionType: 'out',
-                date: new Date()
+            if (winError) throw winError;
+            results.push({ pharmacyId: source.pharmacyId, id: transaction.id });
+
+            // Log activity
+            await logActivity(null, {
+                action: 'salary_payment',
+                userId: user.id || user.userId,
+                username: user.username,
+                description: `دفع ${source.amount} جنيه لـ ${employeeName}`,
+                metadata: {
+                    employeeName,
+                    amount: source.amount,
+                    totalAmount,
+                    reason,
+                    pharmacyId: source.pharmacyId
+                }
             });
-            results.push({ pharmacyId: source.pharmacyId, id: transaction._id });
         }
 
         return NextResponse.json({

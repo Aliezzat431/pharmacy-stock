@@ -1,38 +1,11 @@
 import { NextResponse } from 'next/server';
-import { getDb } from '@/app/lib/db';
+import { supabase } from '@/app/lib/supabase';
 import jwt from 'jsonwebtoken';
-import { getUserModel } from '@/app/lib/models/User';
+import { logActivity } from '@/app/lib/logActivity';
 
 export async function POST(request) {
-  console.log('========== REGISTER API HIT ==========');
-
   try {
-    // 🔍 Debug headers
-    const contentType = request.headers.get('content-type');
-    console.log('Content-Type:', contentType);
-
-    // 🔍 Try reading raw body
-    let rawBody;
-    try {
-      rawBody = await request.text();
-      console.log('RAW BODY:', rawBody);
-    } catch (e) {
-      console.error('Error reading raw body:', e);
-    }
-
-    // ❗ لازم نرجع نعمل parse تاني لأن request.text بيستهلك الـ stream
-    let body;
-    try {
-      body = rawBody ? JSON.parse(rawBody) : null;
-      console.log('PARSED BODY:', body);
-    } catch (e) {
-      console.error('JSON PARSE ERROR:', e);
-      return NextResponse.json(
-        { success: false, message: 'Body مش JSON صحيح' },
-        { status: 400 }
-      );
-    }
-
+    const body = await request.json();
     if (!body) {
       return NextResponse.json(
         { success: false, message: 'Body فاضي' },
@@ -42,20 +15,9 @@ export async function POST(request) {
 
     const { username, password, pharmacyId, masterPin } = body;
 
-    console.log('username:', username);
-    console.log('password:', password ? '***' : undefined);
-    console.log('pharmacyId:', pharmacyId);
-    console.log('masterPin:', masterPin ? '***' : undefined);
-
     const adminKey = process.env.ADMIN_KEY;
     const jwtSecret = process.env.JWT_SECRET;
     const envMasterPin = process.env.MASTER_PIN;
-
-    console.log('ENV CHECK:', {
-      hasAdminKey: !!adminKey,
-      hasJwtSecret: !!jwtSecret,
-      hasMasterPin: !!envMasterPin,
-    });
 
     // ✅ Validations
     if (!username || typeof username !== 'string' || username.trim().length < 3) {
@@ -90,7 +52,6 @@ export async function POST(request) {
     let role = 'employee';
 
     if (masterPin) {
-      console.log('Trying master registration...');
       if (masterPin === envMasterPin) {
         role = 'master';
       } else {
@@ -100,7 +61,6 @@ export async function POST(request) {
         );
       }
     } else {
-      console.log('Employee registration...');
       if (!password.includes(adminKey)) {
         return NextResponse.json(
           { success: false, message: 'كلمة المرور لازم تحتوي على Admin Key' },
@@ -109,20 +69,12 @@ export async function POST(request) {
       }
     }
 
-    if (!pharmacyId || (pharmacyId !== '1' && pharmacyId !== '2')) {
-      return NextResponse.json(
-        { success: false, message: 'pharmacyId غير صالح' },
-        { status: 400 }
-      );
-    }
-
-    // 🔌 DB
-    console.log('Connecting to DB, pharmacyId:', pharmacyId);
-    const conn = await getDb(pharmacyId);
-    const User = getUserModel(conn);
-
-    const existingUser = await User.findOne({ username: username.trim() });
-    console.log('existingUser:', !!existingUser);
+    // 🔌 Check Existing User
+    const { data: existingUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('username', username.trim())
+        .single();
 
     if (existingUser) {
       return NextResponse.json(
@@ -132,10 +84,13 @@ export async function POST(request) {
     }
 
     if (role === 'master') {
-      const masterExists = await User.findOne({ role: 'master' });
-      console.log('masterExists:', !!masterExists);
+      const { data: masterExists } = await supabase
+        .from('users')
+        .select('id')
+        .eq('role', 'master')
+        .limit(1);
 
-      if (masterExists) {
+      if (masterExists && masterExists.length > 0) {
         return NextResponse.json(
           { success: false, message: 'يوجد مستخدم ماستر بالفعل' },
           { status: 403 }
@@ -144,41 +99,64 @@ export async function POST(request) {
     }
 
     // 🧾 Create user
-    const newUser = await User.create({
-      username: username.trim(),
-      password,
-      pharmacyId,
-      role,
-    });
+    const { data: newUser, error: createError } = await supabase
+      .from('users')
+      .insert({
+        username: username.trim(),
+        password,
+        pharmacy_id: pharmacyId || '1',
+        role,
+        active: true,
+        base_salary: 0
+      })
+      .select()
+      .single();
 
-    console.log('User created:', {
-      id: newUser._id.toString(),
-      role: newUser.role,
-    });
+    if (createError) throw createError;
 
     // 🔐 JWT
     const token = jwt.sign(
       {
-        userId: newUser._id.toString(),
+        userId: newUser.id,
         username: newUser.username,
-        pharmacyId,
-        role,
+        pharmacyId: newUser.pharmacy_id,
+        role: newUser.role,
       },
       jwtSecret,
       { expiresIn: '7d' }
     );
 
-    console.log('TOKEN GENERATED');
-
-    return NextResponse.json(
+    const response = NextResponse.json(
       { success: true, message: 'تم التسجيل بنجاح', token },
       { status: 200 }
     );
 
+    response.cookies.set('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+      path: '/',
+    });
+
+    // Log activity
+    await logActivity(null, {
+      action: 'register',
+      userId: newUser.id,
+      username: newUser.username,
+      description: `تسجيل مستخدم جديد: ${newUser.username} (${role === 'master' ? 'مدير' : 'موظف'})`,
+      metadata: {
+        role: newUser.role,
+        pharmacy_id: newUser.pharmacy_id
+      }
+    });
+
+    return response;
+
   } catch (error) {
     console.error('REGISTER API ERROR:', error);
     return NextResponse.json(
-      { success: false, message: 'خطأ في الخادم' },
+      { success: false, message: 'خطأ في الخادم: ' + error.message },
       { status: 500 }
     );
   }

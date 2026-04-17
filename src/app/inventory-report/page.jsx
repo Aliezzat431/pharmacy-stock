@@ -1,41 +1,47 @@
 "use client";
+
 import React, { useState, useEffect, useMemo } from "react";
 import axios from "axios";
 import {
-    Box,
-    Container,
-    Typography,
-    Paper,
-    Tabs,
-    Tab,
     Table,
     TableBody,
     TableCell,
-    TableContainer,
     TableHead,
+    TableHeader,
     TableRow,
-    Chip,
-    Button,
-    CircularProgress,
-    IconButton,
-    Tooltip,
+} from "@/components/ui/table";
+
+import {
     Select,
-    MenuItem,
-    FormControl,
-    InputLabel,
-    Stack,
-    Divider,
-} from "@mui/material";
-import WarningAmberIcon from "@mui/icons-material/WarningAmber";
-import EventBusyIcon from "@mui/icons-material/EventBusy";
-import FileDownloadIcon from "@mui/icons-material/FileDownload";
-import RefreshIcon from "@mui/icons-material/Refresh";
-import PrintIcon from "@mui/icons-material/Print";
-import BusinessIcon from '@mui/icons-material/Business';
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import {
+    FileText,
+    RefreshCw,
+    Printer,
+    Download,
+    AlertCircle,
+    Clock,
+    Ban,
+    Building2,
+    Calendar,
+    X,
+    PieChart,
+    Filter
+} from "lucide-react";
+import { toast } from "sonner";
+import Cookies from "js-cookie";
+import { cn } from "@/lib/utils";
 import ShortcomingInvoiceModal from "@/app/components/shortcomingInvoiceModal";
 
 const InventoryReport = () => {
-    const [tab, setTab] = useState(0);
+    const [tab, setTab] = useState("shortcomings");
     const [loading, setLoading] = useState(true);
     const [reportData, setReportData] = useState({
         shortcomings: [],
@@ -51,7 +57,7 @@ const InventoryReport = () => {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const token = localStorage.getItem("token");
+            const token = Cookies.get("token");
             const [reportRes, companiesRes, settingsRes] = await Promise.all([
                 axios.get("/api/reports/inventory", {
                     headers: { Authorization: `Bearer ${token}` }
@@ -73,6 +79,7 @@ const InventoryReport = () => {
             }
         } catch (err) {
             console.error(err);
+            toast.error("فشل في تحميل تقارير المخزون ❌");
         } finally {
             setLoading(false);
         }
@@ -83,7 +90,7 @@ const InventoryReport = () => {
     }, []);
 
     const activeList = useMemo(() => {
-        const list = tab === 0 ? reportData.shortcomings : tab === 1 ? reportData.expiringSoon : reportData.expired;
+        const list = tab === "shortcomings" ? reportData.shortcomings : tab === "expiringSoon" ? reportData.expiringSoon : reportData.expired;
         if (filteredCompany === "all") return list;
         return list.filter(p => p.company === filteredCompany);
     }, [tab, reportData, filteredCompany]);
@@ -106,6 +113,7 @@ const InventoryReport = () => {
         link.href = URL.createObjectURL(blob);
         link.download = `${filename}.csv`;
         link.click();
+        toast.success("تم تصدير التقرير بنجاح ✅");
     };
 
     const handlePrint = () => {
@@ -113,142 +121,188 @@ const InventoryReport = () => {
     };
 
     const renderTable = (data, type) => (
-        <TableContainer className="glass-card" sx={{ mt: 2, border: '1px solid var(--glass-border)' }}>
-            <Table className="modern-table">
-                <TableHead>
-                    <TableRow>
-                        <TableCell sx={{ fontWeight: 800 }}>المنتج</TableCell>
-                        <TableCell align="center" sx={{ fontWeight: 800 }}>الكمية المتبقية</TableCell>
-                        <TableCell align="center" sx={{ fontWeight: 800 }}>الحالة</TableCell>
-                        <TableCell align="center" sx={{ fontWeight: 800 }}>تاريخ الانتهاء</TableCell>
-                        <TableCell align="center" sx={{ fontWeight: 800 }}>الشركة</TableCell>
+        <Card className="glass-morphism border-none shadow-2xl overflow-hidden rounded-[28px] animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <Table>
+                <TableHeader className="bg-primary/5">
+                    <TableRow className="hover:bg-transparent border-b border-primary/10">
+                        <TableHead className="text-right font-black">المنتج</TableHead>
+                        <TableHead className="text-center font-black">الكمية المتبقية</TableHead>
+                        <TableHead className="text-center font-black">الحالة</TableHead>
+                        <TableHead className="text-center font-black">تاريخ الانتهاء</TableHead>
+                        <TableHead className="text-center font-black">الشركة</TableHead>
                     </TableRow>
-                </TableHead>
+                </TableHeader>
                 <TableBody>
                     {data.map((p) => (
-                        <TableRow key={p._id} hover>
-                            <TableCell sx={{ fontWeight: 700 }}>{p.name}</TableCell>
-                            <TableCell align="center">
-                                <Typography sx={{ fontWeight: 800, color: type === 'short' ? 'error.main' : 'inherit' }}>
-                                    {p.quantity} {p.unit}
-                                </Typography>
+                        <TableRow key={p._id} className="hover:bg-primary/5 transition-colors group border-b border-white/5 last:border-0">
+                            <TableCell className="font-black text-lg py-5 italic opacity-80 group-hover:opacity-100 transition-opacity">
+                                {p.name}
                             </TableCell>
-                            <TableCell align="center">
+                            <TableCell className="text-center">
+                                <span className={cn(
+                                    "font-black text-xl tracking-tighter",
+                                    type === 'short' ? "text-red-500" : "text-primary"
+                                )}>
+                                    {p.quantity} <span className="text-[10px] italic opacity-60 font-bold uppercase tracking-widest">{p.unit}</span>
+                                </span>
+                            </TableCell>
+                            <TableCell className="text-center">
                                 {type === 'short' ? (
-                                    <Chip label="نقص مخزون" size="small" color="error" sx={{ fontWeight: 700 }} />
+                                    <Badge className="bg-red-500 text-white font-black px-3 py-1 rounded-lg shadow-lg shadow-red-500/20">نقص مخزون</Badge>
                                 ) : type === 'expired' ? (
-                                    <Chip label="منتهي" size="small" color="error" variant="filled" sx={{ fontWeight: 700 }} />
+                                    <Badge className="bg-destructive text-white font-black px-3 py-1 rounded-lg">منتهي الصلاحية</Badge>
                                 ) : (
-                                    <Chip label="ينتهي قريباً" size="small" color="warning" sx={{ fontWeight: 700 }} />
+                                    <Badge className="bg-amber-500 text-white font-black px-3 py-1 rounded-lg">ينتهي قريباً</Badge>
                                 )}
                             </TableCell>
-                            <TableCell align="center">
-                                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            <TableCell className="text-center">
+                                <div className="flex items-center justify-center gap-2 text-sm font-bold opacity-60">
+                                    <Calendar className="h-3 w-3" />
                                     {p.expiryDate ? new Date(p.expiryDate).toLocaleDateString("ar-EG") : "—"}
-                                </Typography>
+                                </div>
                             </TableCell>
-                            <TableCell align="center">{p.company || "—"}</TableCell>
+                            <TableCell className="text-center font-bold text-muted-foreground">
+                                {p.company || "—"}
+                            </TableCell>
                         </TableRow>
                     ))}
                     {data.length === 0 && (
                         <TableRow>
-                            <TableCell colSpan={5} align="center" sx={{ py: 8, opacity: 0.6 }}>
-                                لا توجد بيانات لعرضها في هذا القسم
+                            <TableCell colSpan={5} className="h-60 text-center">
+                                <div className="flex flex-col items-center gap-4 opacity-20">
+                                    <X className="h-16 w-16" />
+                                    <p className="font-black text-2xl uppercase tracking-[0.2em] italic">No Data Available</p>
+                                </div>
                             </TableCell>
                         </TableRow>
                     )}
                 </TableBody>
             </Table>
-        </TableContainer>
+        </Card>
     );
 
+    if (loading) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+                <div className="h-20 w-20 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+                <p className="font-black text-primary text-xl animate-pulse italic tracking-widest uppercase">Analyzing Inventory...</p>
+            </div>
+        );
+    }
+
     return (
-        <Container maxWidth="lg" sx={{ py: 4, direction: 'rtl' }}>
-            <Box className="no-print" sx={{ mb: 4, display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 2 }}>
-                <Box>
-                    <Typography variant="h4" sx={{ fontWeight: 800, color: 'var(--primary)' }}>
-                        📊 تقارير المخزون والنواقص
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">متابعة المنتجات التي تحتاج طلبية أو شارفت على الانتهاء</Typography>
-                </Box>
-                <Stack direction="row" gap={1} flexWrap="wrap">
-                    <IconButton onClick={fetchData} className="glass-card"><RefreshIcon /></IconButton>
+        <div className="p-4 md:p-8 w-full min-h-screen flex flex-col gap-8 no-print" dir="rtl">
+            {/* Header Area */}
+            <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-8 bg-white/40 dark:bg-zinc-900/40 backdrop-blur-xl border border-white/20 dark:border-zinc-800/50 p-8 rounded-[40px] shadow-2xl">
+                <div className="flex items-center gap-6">
+                    <div className="h-16 w-16 rounded-[22px] premium-gradient flex items-center justify-center text-white shadow-2xl shadow-primary/30">
+                        <PieChart className="h-8 w-8" />
+                    </div>
+                    <div>
+                        <h1 className="text-4xl font-black text-primary tracking-tighter leading-none mb-2">تقارير المخزون والنواقص</h1>
+                        <p className="text-xs font-black text-muted-foreground uppercase tracking-[0.3em] opacity-40 italic">Inventory Intelligence Report</p>
+                    </div>
+                </div>
+
+                <div className="flex flex-wrap gap-4 w-full xl:w-auto">
                     <Button
-                        variant="outlined"
-                        startIcon={<PrintIcon />}
+                        onClick={fetchData}
+                        variant="ghost"
+                        className="h-14 w-14 rounded-2xl bg-white/50 dark:bg-zinc-800 p-0 hover:rotate-180 transition-transform duration-500"
+                    >
+                        <RefreshCw className="h-6 w-6 text-primary" />
+                    </Button>
+
+                    <Button
+                        variant="ghost"
                         onClick={handlePrint}
-                        sx={{ borderRadius: '12px', fontWeight: 700, borderWidth: 2 }}
+                        className="h-14 px-8 rounded-2xl bg-white/50 dark:bg-zinc-800 border-2 border-primary/20 hover:border-primary font-black text-lg transition-all"
                     >
-                        طباعة فاتورة (PDF)
+                        <Printer className="ml-2 h-5 w-5" />
+                        طباعة الطلبية (PDF)
                     </Button>
+
                     <Button
-                        variant="contained"
-                        startIcon={<FileDownloadIcon />}
                         onClick={() => handleExport(activeList, "inventory_report")}
-                        sx={{ borderRadius: '12px', fontWeight: 700 }}
+                        className="h-14 px-10 rounded-2xl premium-gradient text-white font-black text-lg shadow-xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
                     >
-                        تصدير (CSV)
+                        <Download className="ml-2 h-5 w-5" />
+                        تصدير البيانات (CSV)
                     </Button>
-                </Stack>
-            </Box>
+                </div>
+            </div>
 
-            <Box className="no-print glass-card" sx={{ p: 2, mb: 3, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-                <BusinessIcon color="primary" />
-                <FormControl size="small" sx={{ minWidth: 200 }}>
-                    <InputLabel>فلترة حسب الشركة</InputLabel>
-                    <Select
-                        label="فلترة حسب الشركة"
-                        value={filteredCompany}
-                        onChange={(e) => setFilteredCompany(e.target.value)}
-                        sx={{ borderRadius: '10px' }}
+            {/* Sub Header / Filters */}
+            <Card className="glass-morphism border-none p-6 shadow-xl flex flex-col md:flex-row items-center gap-6">
+                <div className="flex items-center gap-4 flex-1 w-full">
+                    <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                        <Filter className="h-5 w-5" />
+                    </div>
+                    <div className="flex-1">
+                        <Select value={filteredCompany} onValueChange={setFilteredCompany}>
+                            <SelectTrigger className="h-12 w-full max-w-sm rounded-[14px] bg-white/50 dark:bg-zinc-800/50 border-white/20 dark:border-zinc-800 font-black text-md">
+                                <div className="flex items-center gap-2">
+                                    <Building2 className="h-4 w-4 opacity-40 shrink-0" />
+                                    <SelectValue placeholder="فلترة حسب المورد..." />
+                                </div>
+                            </SelectTrigger>
+                            <SelectContent className="glass-morphism border-white/10 rounded-2xl">
+                                <SelectItem value="all" className="font-black">كل الشركات والموردين</SelectItem>
+                                {companies.map(c => (
+                                    <SelectItem key={c._id} value={c.name} className="font-bold">{c.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
+
+                <div className="h-10 w-px bg-white/10 hidden md:block" />
+
+                <div className="flex items-center gap-4 mr-auto">
+                    <div className="text-left">
+                        <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest leading-none">Filtered Results</p>
+                        <p className="text-2xl font-black text-primary italic leading-none">{activeList.length}</p>
+                    </div>
+                </div>
+            </Card>
+
+            {/* Modern Category Selector */}
+            <div className="relative flex flex-wrap justify-center gap-4 bg-white/40 dark:bg-zinc-900/40 backdrop-blur-2xl p-3 shadow-2xl rounded-full border border-white/20 dark:border-zinc-800/50 max-w-fit mx-auto overflow-hidden">
+                {[
+                    { id: "shortcomings", label: "النواقص", count: reportData.shortcomings.length, icon: AlertCircle, color: "text-red-500", bgActive: "bg-gradient-to-tr from-red-600 to-red-400", shadow: "shadow-red-500/40" },
+                    { id: "expiringSoon", label: "توشك على الانتهاء", count: reportData.expiringSoon.length, icon: Clock, color: "text-amber-500", bgActive: "bg-gradient-to-tr from-amber-500 to-orange-400", shadow: "shadow-amber-500/40" },
+                    { id: "expired", label: "منتهية الصلاحية", count: reportData.expired.length, icon: Ban, color: "text-zinc-800 dark:text-zinc-200", bgActive: "bg-gradient-to-tr from-zinc-800 to-zinc-600 dark:from-zinc-200 dark:to-zinc-400 dark:text-zinc-900 text-white", shadow: "shadow-black/20 dark:shadow-white/20" },
+                ].map((item) => (
+                    <button
+                        key={item.id}
+                        onClick={() => setTab(item.id)}
+                        className={cn(
+                            "relative flex items-center justify-center gap-3 px-8 py-4 rounded-full font-black text-lg transition-all duration-500 ease-out z-10",
+                            tab === item.id 
+                                ? cn("scale-105", item.id === "expired" ? "text-white dark:text-zinc-900" : "text-white") 
+                                : `text-muted-foreground hover:bg-white/50 dark:hover:bg-zinc-800/50 hover:scale-105 hover:${item.color}`
+                        )}
                     >
-                        <MenuItem value="all">كل الشركات</MenuItem>
-                        {companies.map(c => <MenuItem key={c._id} value={c.name}>{c.name}</MenuItem>)}
-                    </Select>
-                </FormControl>
-                <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
-                <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary' }}>
-                    عدد النتائج المفلترة: {activeList.length}
-                </Typography>
-            </Box>
+                        {tab === item.id && (
+                            <div className={cn("absolute inset-0 rounded-full shadow-2xl -z-10", item.bgActive, item.shadow)} />
+                        )}
+                        <item.icon className="h-6 w-6" />
+                        {item.label}
+                        <Badge variant="outline" className={cn(
+                            "ml-2 px-2 py-0.5 rounded-full border text-xs font-black transition-colors duration-500",
+                            tab === item.id ? "border-white/30 bg-white/20 text-current" : "border-primary/20 bg-primary/5 text-primary"
+                        )}>
+                            {item.count}
+                        </Badge>
+                    </button>
+                ))}
+            </div>
 
-            <Box className="no-print glass-card" sx={{ bgcolor: 'var(--glass-bg)', p: 1, borderRadius: '16px', mb: 3 }}>
-                <Tabs
-                    value={tab}
-                    onChange={(e, v) => setTab(v)}
-                    variant="fullWidth"
-                    sx={{ '& .MuiTabs-indicator': { height: 3, borderRadius: '3px' } }}
-                >
-                    <Tab
-                        icon={<WarningAmberIcon />}
-                        iconPosition="start"
-                        label={`النواقص (${reportData.shortcomings.length})`}
-                        sx={{ fontWeight: 700, minHeight: 60 }}
-                    />
-                    <Tab
-                        icon={<EventBusyIcon />}
-                        iconPosition="start"
-                        label={`توشك على الانتهاء (${reportData.expiringSoon.length})`}
-                        sx={{ fontWeight: 700, minHeight: 60 }}
-                    />
-                    <Tab
-                        icon={<EventBusyIcon />}
-                        iconPosition="start"
-                        label={`منتهية الصلاحية (${reportData.expired.length})`}
-                        sx={{ fontWeight: 700, minHeight: 60 }}
-                    />
-                </Tabs>
-            </Box>
-
-            {loading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress /></Box>
-            ) : (
-                <Box sx={{ animation: 'fadeIn 0.5s ease' }}>
-                    {tab === 0 && renderTable(activeList, 'short')}
-                    {tab === 1 && renderTable(activeList, 'soon')}
-                    {tab === 2 && renderTable(activeList, 'expired')}
-                </Box>
-            )}
+            <div className="mt-8 transition-all duration-700 ease-in-out animate-in fade-in slide-in-from-bottom-8">
+                {tab === "shortcomings" && renderTable(activeList, "short")}
+                {tab === "expiringSoon" && renderTable(activeList, "soon")}
+                {tab === "expired" && renderTable(activeList, "expired")}
+            </div>
 
             <ShortcomingInvoiceModal
                 open={invoiceOpen}
@@ -257,7 +311,7 @@ const InventoryReport = () => {
                 pharmacyInfo={pharmacyInfo}
                 companyName={filteredCompany}
             />
-        </Container>
+        </div>
     );
 };
 

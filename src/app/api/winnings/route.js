@@ -1,27 +1,32 @@
-import { getDb } from '@/app/lib/db';
+import { supabase } from '@/app/lib/supabase';
 import { verifyToken } from '@/app/lib/verifyToken';
 import { NextResponse } from 'next/server';
-import { getWinningModel } from '@/app/lib/models/Winning';
 import { getSetting } from "@/app/lib/getSetting";
 
 export async function GET(req) {
   try {
-    const user = verifyToken(req.headers);
+    const user = await verifyToken(req.headers);
     if (!user) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
 
     const { searchParams } = new URL(req.url);
     const full = searchParams.get("full") === "true";
 
-    const conn = await getDb(user.pharmacyId);
-    const Winning = getWinningModel(conn);
-
     if (full) {
-      const rawWinnings = await Winning.find({}).sort({ date: 1 }).lean();
+      const { data: rawWinnings, error } = await supabase
+        .from('winnings')
+        .select('*')
+        .order('date', { ascending: true });
+      if (error) throw error;
       return NextResponse.json(rawWinnings);
     }
 
-    const baseCapital = await getSetting(conn, 'baseCapital', 100000);
-    const rawWinnings = await Winning.find({}).sort({ date: 1 }).lean();
+    const baseCapital = await getSetting(null, 'baseCapital', 100000);
+    const { data: rawWinnings, error } = await supabase
+      .from('winnings')
+      .select('*')
+      .order('date', { ascending: true });
+    
+    if (error) throw error;
 
     const grouped = rawWinnings.reduce((acc, curr) => {
       const dateStr = new Date(curr.date).toISOString().split('T')[0];
@@ -39,22 +44,28 @@ export async function GET(req) {
       }
 
       // حساب المبالغ
-      if (curr.transactionType === 'in') acc[dateStr].totalIn += curr.amount;
-      else if (curr.transactionType === 'out') acc[dateStr].totalOut += curr.amount;
-      else if (curr.transactionType === 'suspended') acc[dateStr].totalSuspended += curr.amount;
-      else if (curr.transactionType === 'sadaqah') acc[dateStr].totalSadaqah += curr.amount;
-      else if (curr.transactionType === 'sadaqahPaid') acc[dateStr].totalIn += curr.amount;
-      else if (curr.transactionType === 'withdrawal') acc[dateStr].totalWithdrawal += curr.amount;
+      const amount = Number(curr.amount || 0);
+      const type = curr.transaction_type;
 
-      const reason = curr.transactionType === 'sadaqah'
+      if (type === 'in') acc[dateStr].totalIn += amount;
+      else if (type === 'out') acc[dateStr].totalOut += amount;
+      else if (type === 'suspended') acc[dateStr].totalSuspended += amount;
+      else if (type === 'sadaqah') acc[dateStr].totalSadaqah += amount;
+      else if (type === 'sadaqahPaid') acc[dateStr].totalIn += amount;
+      else if (type === 'withdrawal') acc[dateStr].totalWithdrawal += amount;
+
+      const reason = type === 'sadaqah'
         ? "صدقة (غير مدفوعة)"
         : curr.reason;
 
-      acc[dateStr].orders.push({
-        reason,
-        amount: curr.amount,
-        type: curr.transactionType === 'sadaqah' ? 'sadaqah' : curr.transactionType
-      });
+      // Only add to visible history if it's NOT a hidden return (negative in)
+      if (!(type === 'in' && amount < 0)) {
+        acc[dateStr].orders.push({
+          reason,
+          amount: amount,
+          type: type === 'sadaqah' ? 'sadaqah' : type
+        });
+      }
 
       return acc;
     }, {});

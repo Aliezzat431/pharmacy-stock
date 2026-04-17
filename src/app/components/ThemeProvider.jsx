@@ -1,18 +1,20 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { setDarkMode } from "../../lib/redux/slices/uiSlice";
 
 const ThemeProvider = ({ children }) => {
     const dispatch = useDispatch();
     const darkMode = useSelector((state) => state.ui.darkMode);
+    const [mounted, setMounted] = useState(false);
 
     // Initial Sync on Mount
     useEffect(() => {
-        // Check local storage or system preference
         const storedTheme = localStorage.getItem("theme");
-        const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const systemPrefersDark = window.matchMedia(
+            "(prefers-color-scheme: dark)"
+        ).matches;
 
         if (storedTheme === "dark" || (!storedTheme && systemPrefersDark)) {
             dispatch(setDarkMode(true));
@@ -21,10 +23,14 @@ const ThemeProvider = ({ children }) => {
             dispatch(setDarkMode(false));
             document.documentElement.classList.remove("dark");
         }
+
+        setMounted(true);
     }, [dispatch]);
 
-    // Sync Redux state changes to DOM and LocalStorage
+    // Sync Redux state changes
     useEffect(() => {
+        if (!mounted) return;
+
         if (darkMode) {
             document.documentElement.classList.add("dark");
             localStorage.setItem("theme", "dark");
@@ -32,7 +38,12 @@ const ThemeProvider = ({ children }) => {
             document.documentElement.classList.remove("dark");
             localStorage.setItem("theme", "light");
         }
-    }, [darkMode]);
+    }, [darkMode, mounted]);
+
+    // ⛔ Prevent render before theme is ready
+    if (!mounted) {
+        return null; // أو spinner لو حابب
+    }
 
     return <>{children}</>;
 };

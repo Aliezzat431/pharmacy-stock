@@ -1,24 +1,24 @@
 "use client";
+
 import React from "react";
 import {
     Dialog,
-    DialogTitle,
     DialogContent,
-    DialogActions,
-    Button,
-    Typography,
-    Box,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import {
     Table,
-    TableHead,
-    TableRow,
-    TableCell,
     TableBody,
-    Divider,
-    IconButton,
-    Grid,
-} from "@mui/material";
-import CloseIcon from "@mui/icons-material/Close";
-import PrintIcon from "@mui/icons-material/Print";
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { X, Printer, FileText, ClipboardList, Scissors, CheckCircle2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const ShortcomingInvoiceModal = ({ open, onClose, items, pharmacyInfo, companyName }) => {
     const handlePrint = () => {
@@ -26,155 +26,149 @@ const ShortcomingInvoiceModal = ({ open, onClose, items, pharmacyInfo, companyNa
     };
 
     return (
-        <Dialog
-            open={open}
-            onClose={onClose}
-            maxWidth="md"
-            fullWidth
-            PaperProps={{
-                sx: { borderRadius: '20px', minHeight: '80vh' }
-            }}
-        >
-            <style>
-                {`
-                    @media print {
-                        @page {
-                            size: portrait;
-                            margin: 5mm;
+        <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
+            <DialogContent className="max-w-4xl h-[90vh] p-0 border-none overflow-hidden rounded-[32px] glass-morphism shadow-2xl flex flex-col" dir="rtl">
+                <style>
+                    {`
+                        @media print {
+                            @page {
+                                size: portrait;
+                                margin: 10mm;
+                            }
+                            body * { visibility: hidden; }
+                            #invoice-printable, #invoice-printable * { visibility: visible; }
+                            #invoice-printable {
+                                position: absolute;
+                                left: 0;
+                                top: 0;
+                                width: 100% !important;
+                                padding: 0 !important;
+                                margin: 0 !important;
+                                direction: rtl;
+                            }
+                            .no-print-action { display: none !important; }
                         }
-                        body * { visibility: hidden; }
-                        #invoice-printable, #invoice-printable * { visibility: visible; }
-                        #invoice-printable {
-                            position: absolute;
-                            left: 0;
-                            top: 0;
-                            width: 100% !important;
-                            padding: 0 !important;
-                            margin: 0 !important;
-                            direction: rtl;
-                        }
-                        .no-print-action { display: none !important; }
-                    }
-                `}
-            </style>
+                    `}
+                </style>
 
-            <DialogTitle component="div" sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: 'var(--primary)', color: 'white' }}>
-                <Typography variant="h6" sx={{ fontWeight: 800 }}>معاينة فاتورة النواقص</Typography>
-                <IconButton onClick={onClose} size="small" sx={{ color: 'white' }}>
-                    <CloseIcon />
-                </IconButton>
-            </DialogTitle>
+                <DialogHeader className="p-8 pb-4 premium-gradient text-white rounded-t-[32px] no-print-action">
+                    <div className="flex items-center justify-between">
+                        <DialogTitle className="text-2xl font-black flex items-center gap-3">
+                            <ClipboardList className="h-6 w-6" />
+                            معاينة فاتورة النواقص
+                        </DialogTitle>
+                        <Button variant="ghost" size="icon" onClick={onClose} className="text-white hover:bg-white/20 rounded-xl">
+                            <X className="h-5 w-5" />
+                        </Button>
+                    </div>
+                </DialogHeader>
 
-            <DialogContent id="invoice-printable" sx={{ p: 1.5, direction: 'rtl' }}>
-                {/* Header */}
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5, borderBottom: '2px solid #eee', pb: 1 }}>
-                    <Box>
-                        <Typography variant="h5" sx={{ fontWeight: 900, color: 'var(--primary)', mb: 0.5 }}>
-                            {pharmacyInfo.name || "صيدليتك"}
-                        </Typography>
-                        <Typography variant="body1" sx={{ fontWeight: 600 }}>{pharmacyInfo.address}</Typography>
-                        <Typography variant="body1" sx={{ fontWeight: 600 }}>{pharmacyInfo.phone}</Typography>
-                    </Box>
-                    <Box sx={{ textAlign: 'left' }}>
-                        <Typography variant="h6" sx={{ fontWeight: 900, mb: 0.5 }}>طلب شراء / نواقص</Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 700 }}>التاريخ: {new Date().toLocaleDateString("ar-EG")}</Typography>
-                        {companyName !== "all" && (
-                            <Typography variant="h6" sx={{ mt: 0.5, fontWeight: 800, color: 'var(--primary)' }}>الشركة: {companyName}</Typography>
-                        )}
-                    </Box>
-                </Box>
+                <DialogContent id="invoice-printable" className="flex-1 p-12 overflow-y-auto space-y-8 custom-scrollbar bg-white" dir="rtl">
+                    {/* Header */}
+                    <div className="flex justify-between items-start border-b-4 border-primary/20 pb-8">
+                        <div className="space-y-2">
+                            <h1 className="text-3xl font-black text-primary tracking-tight">
+                                {pharmacyInfo.name || "صيدليتك"}
+                            </h1>
+                            <div className="space-y-0.5 text-muted-foreground font-bold text-sm">
+                                <p>{pharmacyInfo.address}</p>
+                                <p>{pharmacyInfo.phone}</p>
+                            </div>
+                        </div>
+                        <div className="text-left space-y-2">
+                            <div className="bg-primary/10 text-primary px-4 py-2 rounded-2xl inline-block">
+                                <h2 className="text-xl font-black uppercase tracking-widest">طلب شراء / نواقص</h2>
+                            </div>
+                            <div className="space-y-0.5 font-bold text-sm text-muted-foreground uppercase tracking-widest">
+                                <p>التاريخ: {new Date().toLocaleDateString("ar-EG")}</p>
+                                {companyName !== "all" && (
+                                    <p className="text-primary font-black">الشركة: {companyName}</p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
 
-                <Typography variant="body1" sx={{ mb: 1.5, fontStyle: 'italic', textAlign: 'center', display: 'block', fontWeight: 600 }}>
-                    {pharmacyInfo.receiptHeader || "قائمة المنتجات المطلوب توفيرها"}
-                </Typography>
+                    <p className="text-center font-bold text-muted-foreground italic tracking-wide">
+                        {pharmacyInfo.receiptHeader || "قائمة المنتجات المطلوب توفيرها للمخزون"}
+                    </p>
 
-                {/* Table */}
-                <Table size="small" sx={{ border: '2px solid #eee' }}>
-                    <TableHead sx={{ bgcolor: '#f0f0f0' }}>
-                        <TableRow>
-                            <TableCell sx={{ fontWeight: 900, border: '1px solid #ccc', py: 0.5, fontSize: '1.1rem' }}>م</TableCell>
-                            <TableCell sx={{ fontWeight: 900, border: '1px solid #ccc', py: 0.5, fontSize: '1.1rem' }}>اسم المنتج</TableCell>
-                            <TableCell align="center" sx={{ fontWeight: 900, border: '1px solid #ccc', py: 0.5, fontSize: '1.1rem' }}>الكمية</TableCell>
-                            <TableCell align="center" sx={{ fontWeight: 900, border: '1px solid #ccc', py: 0.5, fontSize: '1.1rem' }}>الوحدة</TableCell>
-                            <TableCell align="center" sx={{ fontWeight: 900, border: '1px solid #ccc', py: 0.5, fontSize: '1.1rem' }}>الشركة</TableCell>
-                            <TableCell align="center" sx={{ fontWeight: 900, border: '1px solid #ccc', py: 0.5, fontSize: '1.1rem' }}>ملاحظات</TableCell>
-                        </TableRow>
-                    </TableHead>
-                    <TableBody>
-                        {items.map((item, index) => (
-                            <TableRow key={index}>
-                                <TableCell sx={{ border: '1px solid #eee', py: 0.3, fontSize: '1rem', fontWeight: 600 }}>{index + 1}</TableCell>
-                                <TableCell sx={{ fontWeight: 800, border: '1px solid #eee', py: 0.3, fontSize: '1.1rem' }}>{item.name}</TableCell>
-                                <TableCell align="center" sx={{ border: '1px solid #eee', py: 0.3, fontSize: '1.1rem', fontWeight: 800 }}>{item.quantity}</TableCell>
-                                <TableCell align="center" sx={{ border: '1px solid #eee', py: 0.3, fontSize: '1rem', fontWeight: 600 }}>{typeof item.unit === 'object' ? item.unit.label : item.unit}</TableCell>
-                                <TableCell align="center" sx={{ border: '1px solid #eee', py: 0.3, fontSize: '1rem', fontWeight: 600 }}>{item.company || "—"}</TableCell>
-                                <TableCell align="center" sx={{ border: '1px solid #eee', py: 0.3, width: '100px' }}></TableCell>
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
+                    {/* Table */}
+                    <div className="rounded-[24px] border-2 border-border/40 overflow-hidden shadow-sm">
+                        <Table className="border-collapse">
+                            <TableHeader className="bg-muted/50">
+                                <TableRow className="hover:bg-transparent border-b-2 border-border/60">
+                                    <TableHead className="text-right w-12 font-black text-xs uppercase tracking-widest py-4 border-l border-border/40">م</TableHead>
+                                    <TableHead className="text-right font-black text-xs uppercase tracking-widest border-l border-border/40">اسم المنتج</TableHead>
+                                    <TableHead className="text-center w-24 font-black text-xs uppercase tracking-widest border-l border-border/40 text-primary">الكمية</TableHead>
+                                    <TableHead className="text-center w-24 font-black text-xs uppercase tracking-widest border-l border-border/40">الوحدة</TableHead>
+                                    <TableHead className="text-center font-black text-xs uppercase tracking-widest border-l border-border/40">الشركة</TableHead>
+                                    <TableHead className="text-center w-32 font-black text-xs uppercase tracking-widest">ملاحظات</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {items.map((item, index) => (
+                                    <TableRow key={index} className="border-b border-border/30 hover:bg-muted/10 transition-colors">
+                                        <TableCell className="font-bold text-xs p-3 text-center border-l border-border/30">{index + 1}</TableCell>
+                                        <TableCell className="font-black text-base p-3 border-l border-border/30">{item.name}</TableCell>
+                                        <TableCell className="text-center font-black text-lg p-3 border-l border-border/30 text-primary">{item.quantity}</TableCell>
+                                        <TableCell className="text-center font-bold text-xs p-3 border-l border-border/30 text-muted-foreground">
+                                            {typeof item.unit === 'object' ? item.unit.label : item.unit}
+                                        </TableCell>
+                                        <TableCell className="text-center font-bold text-xs p-3 border-l border-border/30">{item.company || "—"}</TableCell>
+                                        <TableCell className="p-3 bg-muted/5"></TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </div>
 
-                {/* Footer and Signatures */}
-                <Box sx={{ mt: 2 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'flex-start', mb: 1.5 }}>
-                        <Typography variant="h6" sx={{ fontWeight: 900 }}>
-                            إجمالي عدد الأصناف المطلوبة: {items.length} صنف
-                        </Typography>
-                    </Box>
+                    {/* Summary & Signatures */}
+                    <div className="space-y-8">
+                        <div className="flex items-center gap-3 py-4 border-y border-dashed border-border/60">
+                            <CheckCircle2 className="h-5 w-5 text-primary" />
+                            <span className="text-sm font-black text-primary uppercase tracking-widest">
+                                إجمالي عدد الأصناف المطلوبة: {items.length} صنف
+                            </span>
+                        </div>
 
-                    <Divider sx={{ mb: 2, borderStyle: 'solid', borderWidth: '1px' }} />
+                        <div className="grid grid-cols-3 gap-12 pt-8">
+                            {[
+                                "توقيع الصيدلي المسؤول",
+                                "توقيع المدير المسؤول",
+                                "توقيع المستلم / المندوب"
+                            ].map((label, i) => (
+                                <div key={i} className="space-y-12 text-center">
+                                    <span className="text-xs font-black uppercase tracking-widest leading-none block">{label}</span>
+                                    <div className="border-b-2 border-primary/20 w-full" />
+                                </div>
+                            ))}
+                        </div>
 
-                    <Grid container spacing={2} sx={{ textAlign: 'center' }}>
-                        <Grid item xs={4}>
-                            <Typography variant="body1" sx={{ fontWeight: 900, mb: 4, display: 'block' }}>توقيع الصيدلي المسؤول</Typography>
-                            <Box sx={{ borderBottom: '1.5px solid #000', width: '80%', mx: 'auto' }} />
-                        </Grid>
-                        <Grid item xs={4}>
-                            <Typography variant="body1" sx={{ fontWeight: 900, mb: 4, display: 'block' }}>توقيع المدير المسؤول</Typography>
-                            <Box sx={{ borderBottom: '1.5px solid #000', width: '80%', mx: 'auto' }} />
-                        </Grid>
-                        <Grid item xs={4}>
-                            <Typography variant="body1" sx={{ fontWeight: 900, mb: 4, display: 'block' }}>توقيع المستلم / المندوب</Typography>
-                            <Box sx={{ borderBottom: '1.5px solid #000', width: '80%', mx: 'auto' }} />
-                        </Grid>
-                    </Grid>
+                        {/* Stamp & Footer */}
+                        <div className="flex flex-col items-center justify-center pt-8 space-y-6">
+                            <div className="h-28 w-28 rounded-full border-4 border-dashed border-border/40 flex items-center justify-center rotate-12 opacity-40">
+                                <span className="text-[10px] font-black text-muted-foreground uppercase tracking-tighter text-center">Pharmacy<br />Official<br />Stamp</span>
+                            </div>
 
-                    <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
-                        <Box sx={{
-                            border: '1.5px solid #bbb',
-                            width: '90px',
-                            height: '90px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            borderRadius: '50%',
-                            opacity: 0.5
-                        }}>
-                            <Typography variant="body2" sx={{ fontWeight: 900, color: '#999' }}>ختم الصيدلية</Typography>
-                        </Box>
-                    </Box>
+                            <div className="text-center space-y-2 opacity-70">
+                                <p className="text-xs font-bold italic">"{pharmacyInfo.receiptFooter || "نعمل دائماً لخدمتكم وتوفير احتياجاتكم"}"</p>
+                                <div className="flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-tighter">
+                                    <span>{new Date().toLocaleDateString("ar-EG")}</span>
+                                    <span className="h-1 w-1 rounded-full bg-primary" />
+                                    <span>نظام إدارة الصيدلية الرقمي</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </DialogContent>
 
-                    <Box sx={{ mt: 1.5, textAlign: 'center' }}>
-                        <Typography variant="body1" sx={{ fontStyle: 'italic', fontWeight: 600, display: 'block' }}>{pharmacyInfo.receiptFooter || "نتمنى لكم الشفاء العاجل"}</Typography>
-                        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, opacity: 0.8, fontSize: '11px', fontWeight: 700 }}>
-                            تحريراً في: {new Date().toLocaleDateString("ar-EG")} | نظام إدارة الصيدلية الرقمي
-                        </Typography>
-                    </Box>
-                </Box>
+                <DialogFooter className="p-6 bg-muted/10 border-t border-border/20 gap-4 no-print-action">
+                    <Button onClick={handlePrint} className="flex-1 h-14 rounded-2xl premium-gradient font-black tracking-widest uppercase shadow-xl shadow-primary/20">
+                        <Printer className="ml-3 h-5 w-5" /> تأكيد وحفظ للطباعة
+                    </Button>
+                    <Button onClick={onClose} variant="outline" className="flex-1 h-14 rounded-2xl border-2 font-black uppercase tracking-widest">إغلاق المعاينة</Button>
+                </DialogFooter>
             </DialogContent>
-
-            <DialogActions className="no-print-action" sx={{ p: 3, bgcolor: '#f5f5f5' }}>
-                <Button
-                    variant="contained"
-                    color="primary"
-                    startIcon={<PrintIcon />}
-                    onClick={handlePrint}
-                    sx={{ borderRadius: '10px', px: 4, py: 1, fontWeight: 700 }}
-                >
-                    تأكيد والطباعة
-                </Button>
-                <Button onClick={onClose} variant="outlined" sx={{ borderRadius: '10px' }}>إغلاق المعاينة</Button>
-            </DialogActions>
         </Dialog>
     );
 };

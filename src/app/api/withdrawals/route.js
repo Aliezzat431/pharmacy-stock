@@ -1,11 +1,11 @@
-import { getDb } from "@/app/lib/db";
+import { supabase } from "@/app/lib/supabase";
 import { verifyToken } from "@/app/lib/verifyToken";
 import { NextResponse } from "next/server";
-import { getWinningModel } from "@/app/lib/models/Winning";
+import { logActivity } from "@/app/lib/logActivity";
 
 export async function POST(req) {
     try {
-        const user = verifyToken(req.headers);
+        const user = await verifyToken(req.headers);
         if (!user) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
 
         if (user.role !== 'master') {
@@ -16,7 +16,7 @@ export async function POST(req) {
         }
 
         const body = await req.json();
-        const { amount, reason, pharmacyId } = body;
+        const { amount, reason } = body;
 
         if (!amount || isNaN(amount) || amount <= 0) {
             return NextResponse.json({ success: false, message: "المبلغ غير صحيح" }, { status: 400 });
@@ -26,21 +26,35 @@ export async function POST(req) {
             return NextResponse.json({ success: false, message: "السبب مطلوب" }, { status: 400 });
         }
 
-        const targetPharmacyId = pharmacyId || user.pharmacyId;
-        const conn = await getDb(targetPharmacyId);
-        const Winning = getWinningModel(conn);
+        const { data: transaction, error: winError } = await supabase
+            .from('winnings')
+            .insert({
+                amount: Number(amount),
+                reason: `سحب مدير: ${reason}`,
+                transaction_type: 'withdrawal',
+                date: new Date().toISOString()
+            })
+            .select()
+            .single();
 
-        const transaction = await Winning.create({
-            amount: Number(amount),
-            reason: `سحب مدير: ${reason}`,
-            transactionType: 'withdrawal',
-            date: new Date()
+        if (winError) throw winError;
+
+        // Log activity
+        await logActivity(null, {
+            action: 'withdrawal',
+            userId: user.userId,
+            username: user.username,
+            description: `سحب مبلغ ${amount} جنيه - ${reason}`,
+            metadata: {
+                amount: Number(amount),
+                reason: reason
+            }
         });
 
         return NextResponse.json({
             success: true,
             message: `تم تسجيل سحب ${amount} ج.م بنجاح`,
-            id: transaction._id
+            id: transaction.id
         });
 
     } catch (error) {

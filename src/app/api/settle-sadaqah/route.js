@@ -1,78 +1,71 @@
-import { getDb } from "@/app/lib/db";
+import { supabase } from "@/app/lib/supabase";
 import { verifyToken } from "@/app/lib/verifyToken";
 import { NextResponse } from "next/server";
-import { getWinningModel } from "@/app/lib/models/Winning";
 
 export async function POST(req) {
   try {
-    const user = verifyToken(req.headers);
+    const user = await verifyToken(req.headers);
     if (!user)
       return NextResponse.json(
         { success: false, message: "Unauthorized" },
         { status: 401 }
       );
 
-    const conn = await getDb(user.pharmacyId);
-    const Winning = getWinningModel(conn);
-
     // نجيب كل الصدقات اللي لسه مش مدفوعة
-    const pending = await Winning.find({ transactionType: "sadaqah" });
+    const { data: pending, error: fetchError } = await supabase
+        .from('winnings')
+        .select('*')
+        .eq('transaction_type', 'sadaqah');
 
-    if (!pending.length) {
+    if (fetchError) throw fetchError;
+
+    if (!pending || !pending.length) {
       return NextResponse.json({
         success: false,
         message: "لا توجد صدقات غير مدفوعة الآن",
       });
     }
 
-    const session = await conn.startSession();
-    session.startTransaction();
+    let totalPaid = 0;
+    const payEntries = pending.map((item) => {
+      totalPaid += Number(item.amount);
+      return {
+        amount: Number(item.amount),
+        reason: "تسديد صدقات",
+        transaction_type: "in",
+        date: new Date().toISOString(),
+      };
+    });
 
-    try {
-      let totalPaid = 0;
+    // Insert دفعة واحدة
+    const { error: insertError } = await supabase
+        .from('winnings')
+        .insert(payEntries);
+    
+    if (insertError) throw insertError;
 
-      // نجهز بيانات الدخول دفعة واحدة بدل create لكل عنصر
-      const payEntries = pending.map((item) => {
-        totalPaid += item.amount;
-        return {
-          amount: item.amount,
-          reason: "تسديد صدقات",
-          transactionType: "in",
-          date: new Date(),
-        };
-      });
+    // نعمل تحديث لكل الصدقات دفعة واحدة
+    const ids = pending.map((p) => p.id);
+    const { error: updateError } = await supabase
+        .from('winnings')
+        .update({ transaction_type: "sadaqahPaid", reason: "صدقة مدفوعة" })
+        .in('id', ids);
 
-      // Insert دفعة واحدة
-      await Winning.insertMany(payEntries, { session });
+    if (updateError) throw updateError;
 
-      // نعمل تحديث لكل الصدقات دفعة واحدة
-      const ids = pending.map((p) => p._id);
-      await Winning.updateMany(
-        { _id: { $in: ids } },
-        { $set: { transactionType: "sadaqahPaid", reason: "صدقة مدفوعة" } },
-        { session }
-      );
+    return NextResponse.json({
+      success: true,
+      message: `تم تسديد ${totalPaid} ج.م كصدقات وتم تسجيلها كدخل.`,
+      data: {
+        totalPaid,
+        count: pending.length,
+      }
+    });
 
-      await session.commitTransaction();
-      session.endSession();
-
-      return NextResponse.json({
-        success: true,
-        message: `تم تسديد ${totalPaid} ج.م كصدقات وتم تسجيلها كدخل.`,
-        data: {
-          totalPaid,
-          count: pending.length,
-        }
-      });
-    } catch (err) {
-      await session.abortTransaction();
-      session.endSession();
-      return NextResponse.json({ success: false, message: err.message });
-    }
   } catch (error) {
     console.error(error);
     return NextResponse.json(
-      { success: false, message: "حدث خطأ" },
+      { success: false, message: "حدث خطأ: " + error.message },
       { status: 500 }
     );
   }

@@ -1,46 +1,40 @@
-import AuthWrapper from "./components/AuthWrapper";
-import { ToastProvider } from "./components/ToastContext";
+import { Inter } from "next/font/google";
+import "./globals.css";
 import ReduxProvider from "./components/ReduxProvider";
 import ThemeProvider from "./components/ThemeProvider";
-import "./globals.css";
+import { ToastProvider } from "./components/ToastContext";
+import AuthWrapper from "./components/AuthWrapper";
+import ChatWidget from "./components/Chat/ChatWidget";
+import { Toaster } from "@/components/ui/sonner";
+
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata = {
-  title: "نظام إدارة متكامل للصيدلية",
-  description: "نظام إدارة المخزون والمبيعات المتقدم ",
+  title: "نظام إدارة الصيدلية",
+  description: "نظام متكامل لإدارة الصيدليات",
+  icons: {
+    icon: "https://media.istockphoto.com/id/1313889711/vector/pharmacy-logo-icon-design-vector.jpg",
+  },
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
       <head>
-        <link
-          rel="icon"
-          href="https://media.istockphoto.com/id/1313889711/vector/pharmacy-logo-icon-design-vector.jpg?s=612x612&w=0&k=20&c=VCXSKZSViMbf3eXYZ8EeUqJmuw67M13H1MehDvR3wxI="
-        />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                const theme = localStorage.getItem('theme');
-                if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-                  document.documentElement.classList.add('dark');
-                } else {
-                  document.documentElement.classList.remove('dark');
-                }
-              })();
-            `,
-          }}
-        />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@200..700&display=swap" rel="stylesheet" />
       </head>
-
-      <body className="min-h-screen">
+      <body className={inter.className}>
         <ReduxProvider>
           <ThemeProvider>
-            <div className="flex flex-col min-h-screen">
-              <ToastProvider>
-                <AuthWrapper>{children}</AuthWrapper>
-              </ToastProvider>
-            </div>
+            <ToastProvider>
+              <AuthWrapper>
+                {children}
+                <ChatWidget />
+              </AuthWrapper>
+              <Toaster richColors position="top-center" />
+            </ToastProvider>
           </ThemeProvider>
         </ReduxProvider>
       </body>

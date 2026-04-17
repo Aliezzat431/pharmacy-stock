@@ -1,21 +1,27 @@
 import { NextResponse } from "next/server";
-import mongoose from "mongoose";
-import { getDb } from "@/app/lib/db";
+import { supabase } from "@/app/lib/supabase";
 import { verifyToken } from "@/app/lib/verifyToken";
-import { getCompanyModel } from "@/app/lib/models/Company";
 
 // GET all companies
 export async function GET(req) {
   try {
-    const user = verifyToken(req.headers);
+    const user = await verifyToken(req.headers);
     if (!user)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const conn = await getDb(user.pharmacyId);
-    const Company = getCompanyModel(conn);
+    const { data: companies, error } = await supabase
+      .from('companies')
+      .select('*')
+      .order('name', { ascending: true });
 
-    const companies = await Company.find({}).sort({ name: 1 });
-    return NextResponse.json(companies);
+    if (error) throw error;
+    
+    return NextResponse.json(companies.map(c => ({
+      _id: c.id,
+      id: c.id,
+      name: c.name,
+      createdAt: c.created_at
+    })));
   } catch (error) {
     console.error("GET companies error:", error);
     return NextResponse.json(
@@ -28,7 +34,7 @@ export async function GET(req) {
 // POST create company
 export async function POST(req) {
   try {
-    const user = verifyToken(req.headers);
+    const user = await verifyToken(req.headers);
     if (!user)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -42,19 +48,58 @@ export async function POST(req) {
       );
     }
 
-    const conn = await getDb(user.pharmacyId);
-    const Company = getCompanyModel(conn);
+    // 1. Basic Exact Match Check
+    const { data: existingExact, error: findError } = await supabase
+      .from('companies')
+      .select('name')
+      .ilike('name', name)
+      .single();
 
-    const newCompany = await Company.create({ name });
+    if (existingExact) {
+      return NextResponse.json(
+        { error: "الاسم موجود بالفعل." },
+        { status: 409 }
+      );
+    }
 
-    return NextResponse.json({ id: newCompany._id, name: newCompany.name });
+    // 2. AI Smart Check
+    const { data: allCompanies, error: allErr } = await supabase
+      .from('companies')
+      .select('name');
+    
+    const existingNames = allCompanies ? allCompanies.map(c => c.name) : [];
+
+    if (existingNames.length > 0) {
+      const { validateCompanyName } = await import("@/app/lib/ai/company-validator");
+      const validation = await validateCompanyName(name, existingNames);
+
+      if (validation && validation.isDuplicate) {
+        return NextResponse.json(
+          {
+            error: `يبدو أن هذه الشركة موجودة بالفعل باسم "${validation.existingName}".`,
+            suggestion: validation.existingName
+          },
+          { status: 409 }
+        );
+      }
+    }
+
+    const { data: newCompany, error: createError } = await supabase
+      .from('companies')
+      .insert({ name })
+      .select()
+      .single();
+
+    if (createError) throw createError;
+
+    return NextResponse.json({ id: newCompany.id, _id: newCompany.id, name: newCompany.name });
   } catch (error) {
     console.error("POST companies error:", error);
 
-    // duplicate name error
-    if (error?.code === 11000) {
+    // duplicate name error (postgres fallback)
+    if (error?.code === '23505') {
       return NextResponse.json(
-        { error: "الاسم موجود بالفعل. الرجاء اختيار اسم آخر." },
+        { error: "الاسم موجود بالفعل." },
         { status: 409 }
       );
     }
@@ -69,7 +114,7 @@ export async function POST(req) {
 // PATCH update company
 export async function PATCH(req) {
   try {
-    const user = verifyToken(req.headers);
+    const user = await verifyToken(req.headers);
     if (!user)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -83,13 +128,6 @@ export async function PATCH(req) {
       );
     }
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return NextResponse.json(
-        { error: "معرّف الشركة غير صالح (ID غير صحيح)." },
-        { status: 400 }
-      );
-    }
-
     if (typeof name !== "string" || name.trim().length < 3) {
       return NextResponse.json(
         { error: "اسم الشركة غير صالح. يجب أن يكون نصاً لا يقل عن 3 أحرف." },
@@ -97,33 +135,30 @@ export async function PATCH(req) {
       );
     }
 
-    const conn = await getDb(user.pharmacyId);
-    const Company = getCompanyModel(conn);
+    const { data: updatedCompany, error: updateError } = await supabase
+      .from('companies')
+      .update({ name: name.trim() })
+      .eq('id', id)
+      .select()
+      .single();
 
-    const updatedCompany = await Company.findByIdAndUpdate(
-      id,
-      { name: name.trim() },
-      { new: true, runValidators: true }
-    );
-
-    if (!updatedCompany) {
-      return NextResponse.json({ error: "Not Found" }, { status: 404 });
+    if (updateError || !updatedCompany) {
+      if (updateError?.code === '23505') {
+        return NextResponse.json(
+          { error: "الاسم موجود بالفعل. الرجاء اختيار اسم آخر." },
+          { status: 409 }
+        );
+      }
+      return NextResponse.json({ error: "Not Found or Update Failed" }, { status: 404 });
     }
 
     return NextResponse.json({
-      id: updatedCompany._id,
+      id: updatedCompany.id,
+      _id: updatedCompany.id,
       name: updatedCompany.name,
     });
   } catch (error) {
     console.error("PATCH companies error:", error);
-
-    if (error?.code === 11000) {
-      return NextResponse.json(
-        { error: "الاسم موجود بالفعل. الرجاء اختيار اسم آخر." },
-        { status: 409 }
-      );
-    }
-
     return NextResponse.json(
       { error: "فشل في تحديث الشركة" },
       { status: 500 }

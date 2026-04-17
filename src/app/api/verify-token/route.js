@@ -1,9 +1,22 @@
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
+import { cookies } from "next/headers";
 
 export async function POST(request) {
   try {
-    const { token } = await request.json();
+    // Try reading from cookies first (HTTP-only, secure)
+    const cookieStore = await cookies();
+    let token = cookieStore.get("token")?.value;
+
+    // Fallback: Try reading from request body (for backward compatibility or testing)
+    if (!token) {
+      try {
+        const body = await request.json();
+        token = body.token;
+      } catch (e) {
+        // Body might be empty
+      }
+    }
 
     if (!token) {
       return NextResponse.json(

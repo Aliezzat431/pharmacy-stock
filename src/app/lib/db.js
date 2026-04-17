@@ -22,6 +22,7 @@ export async function getDb(pharmacyId = "1") {
     if (!cached.promise[pharmacyId]) {
         const opts = {
             bufferCommands: false,
+            autoIndex: false,
         };
 
         cached.promise[pharmacyId] = mongoose.createConnection(uri, opts).asPromise();

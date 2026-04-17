@@ -1,30 +1,44 @@
-import { getDb } from "@/app/lib/db";
+import { supabase } from "@/app/lib/supabase";
 import { verifyToken } from "@/app/lib/verifyToken";
 import { getSetting } from "@/app/lib/getSetting";
 import { NextResponse } from "next/server";
-import { getProductModel } from "@/app/lib/models/Product";
 
 export async function GET(req) {
   try {
-    const user = verifyToken(req.headers);
+    const user = await verifyToken(req.headers);
     if (!user) return NextResponse.json({ success: false }, { status: 401 });
 
-    const conn = await getDb(user.pharmacyId);
-    const Product = getProductModel(conn);
+    const threshold = Number(await getSetting(null, "lowStockThreshold", 5));
 
-    const threshold = Number(await getSetting(conn, "lowStockThreshold", 5));
+    const { data: products, error } = await supabase
+      .from('products')
+      .select('*, batches(*)')
+      .order('name', { ascending: true });
 
-    const products = await Product.find({}).sort({ name: 1 }).lean();
+    if (error) throw error;
 
-    const allProducts = products.map((p) => ({
-      ...p,
-      barcodes: Array.isArray(p.barcodes) ? p.barcodes : [],
-      unitOptions: Array.isArray(p.unitOptions) ? p.unitOptions : [],
-      isBaseUnit: !!p.isBaseUnit,
-      isShortcoming: !!p.isShortcoming,
-      quantity: Number(p.quantity) || 0,
-      expiryDate: p.expiryDate ? new Date(p.expiryDate) : null,
-    }));
+    const allProducts = products.map((p) => {
+      const activeBatches = Array.isArray(p.batches) ? p.batches.filter(b => b.is_active) : [];
+      let totalQty = 0;
+      let earliestExpiry = null;
+
+      activeBatches.forEach(b => {
+        totalQty += (Number(b.quantity) || 0);
+        const bDate = b.expiry_date ? new Date(b.expiry_date) : null;
+        if (bDate && (!earliestExpiry || bDate < earliestExpiry)) {
+          earliestExpiry = bDate;
+        }
+      });
+
+      return {
+        ...p,
+        _id: p.id,
+        unitOptions: p.unit_options || [],
+        isShortcoming: !!p.is_shortcoming,
+        quantity: totalQty,
+        expiryDate: earliestExpiry,
+      };
+    });
 
     const shortcomings = allProducts.filter((p) => p.quantity < threshold);
 
@@ -55,6 +69,6 @@ export async function GET(req) {
     });
   } catch (error) {
     console.error("Inventory Report API Error:", error);
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

@@ -1,14 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import {
-  Container,
-  Typography,
-  Button,
-  Box,
-  Snackbar,
-  Alert,
-} from "@mui/material";
 import axios from "axios";
 import DebtModal from "./components/debtModal";
 import ProductsTable from "./components/productsTable";
@@ -17,6 +9,24 @@ import ProductSelectDialog from "./components/productSelectDialog";
 import { useProducts } from "./hooks/useProducts";
 import { useCheckout } from "./hooks/useCheckout";
 import CustomDialog from "./components/common/CustomDialog";
+import Cookies from "js-cookie";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { toast } from "sonner";
+import {
+  ShoppingCart,
+  Wallet,
+  Heart,
+  PlusCircle,
+  Trash2,
+  Calculator,
+  Receipt,
+  Search,
+  AlertTriangle
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { getMultiplier } from "@/app/lib/unitOptions";
+import { supabase } from "@/app/lib/supabase";
 
 const CheckoutPage = () => {
   const { products, setProducts, decreaseStock, restoreStock } = useProducts();
@@ -33,20 +43,19 @@ const CheckoutPage = () => {
   const [tempQuantity, setTempQuantity] = useState(1);
   const [tempUnit, setTempUnit] = useState("علبة");
   const [tempExpiry, setTempExpiry] = useState("");
+  const [tempPillsPerStrip, setTempPillsPerStrip] = useState(10);
   const [variants, setVariants] = useState([]);
   const [tempSelections, setTempSelections] = useState({});
 
   const [showDebt, setShowDebt] = useState(false);
-  const [showError, setShowError] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
   const [barcodeNotFound, setBarcodeNotFound] = useState(null);
-
-  const [showSuccess, setShowSuccess] = useState(false);
-  const [successMessage, setSuccessMessage] = useState("تمت عملية البيع بنجاح ✅");
 
   const [showConfirm, setShowConfirm] = useState(false);
   const [isPendingSadaqah, setIsPendingSadaqah] = useState(false);
+  const [pendingPaymentMethod, setPendingPaymentMethod] = useState("cash");
   const [settingsOptions, setSettingsOptions] = useState({ showCheckoutConfirm: true });
+
+  const [aiMacro, setAiMacro] = useState(null);
 
   useEffect(() => {
     const info = localStorage.getItem("pharmacy-info");
@@ -56,25 +65,62 @@ const CheckoutPage = () => {
     if (options) setSettingsOptions(JSON.parse(options));
   }, []);
 
+  // AI action listener — replay any events that arrived before this tab was mounted
+  useEffect(() => {
+    // Signal the chat widget that the POS tab is mounted and listening
+    window.__posTabReady = true;
+
+    const handleAiAction = (e) => {
+      if (e.detail?.type === 'ADD_TO_CART') {
+        const { productName, quantity, unit } = e.detail;
+        const q = (productName || "").toLowerCase();
+
+        const matches = products.filter(
+          (p) =>
+            (p.name || "").toLowerCase().includes(q) ||
+            (p.barcode && p.barcode.toString().includes(q))
+        );
+
+        if (matches.length > 0) {
+          setShowSearch(true);
+          setAiMacro({ productName, quantity, unit, matches });
+        } else {
+          toast.error(`عذراً، لم يتم العثور على المنتج: ${productName} ❌`);
+        }
+      }
+    };
+
+    window.addEventListener('ai_action', handleAiAction);
+
+    // Replay any queued events that arrived before mount
+    if (Array.isArray(window.__pendingAiActions)) {
+      window.__pendingAiActions.forEach(evt => handleAiAction(evt));
+      window.__pendingAiActions = [];
+    }
+
+    return () => {
+      window.__posTabReady = false;
+      window.removeEventListener('ai_action', handleAiAction);
+    };
+  }, [products, addItem, decreaseStock]);
+
   const resetSelection = () => {
     setSelectedProduct(null);
     setTempQuantity(1);
     setTempUnit("علبة");
     setTempExpiry("");
+    setTempPillsPerStrip(10);
     setVariants([]);
   };
 
   const handleAddProduct = () => {
     if (!selectedProduct) return;
 
-    const price =
-      tempUnit !== selectedProduct.unit && selectedProduct.unitConversion > 0
-        ? selectedProduct.price / selectedProduct.unitConversion
-        : selectedProduct.price;
+    const multiplier = getMultiplier(selectedProduct, tempUnit, tempPillsPerStrip);
+    const price = selectedProduct.price / multiplier;
 
     const qty = Number(tempQuantity);
-    const conversion = Number(selectedProduct.unitConversion || 1);
-    const soldInBoxes = tempUnit === "شريط" ? qty / conversion : qty;
+    const soldInBoxes = qty / multiplier;
 
     const originalQty = Number(selectedProduct.quantity || 0);
     const remaining = Math.max(0, originalQty - soldInBoxes);
@@ -82,6 +128,8 @@ const CheckoutPage = () => {
     const newItem = {
       name: selectedProduct.name,
       _id: selectedProduct._id,
+      batchId: selectedProduct.batchId,   // batch subdoc id for stock tracking
+      barcode: selectedProduct.barcode,   // batch barcode for checkout API
       price,
       quantity: qty,
       unit: tempUnit,
@@ -90,6 +138,7 @@ const CheckoutPage = () => {
       unitOptions: selectedProduct.unitOptions || [selectedProduct.unit],
       fullProduct: selectedProduct,
       remaining,
+      pillsPerStrip: tempPillsPerStrip,
     };
 
     addItem(newItem);
@@ -100,6 +149,7 @@ const CheckoutPage = () => {
   };
 
   const handleScan = useCallback((scanned) => {
+    // Match by batch barcode (flattened field in search results)
     const matchingVariants = products.filter(
       (p) => p.barcode?.toString() === scanned
     );
@@ -115,25 +165,23 @@ const CheckoutPage = () => {
       return dateA - dateB;
     })[0];
 
-    const tempUnit = earliest.unitOptions?.[0] || earliest.unit || "علبة";
-    const tempQuantity = 1;
-    const price =
-      tempUnit !== earliest.unit && earliest.unitConversion > 0
-        ? earliest.price / earliest.unitConversion
-        : earliest.price;
+    const tUnit = earliest.unitOptions?.[0] || earliest.unit || "علبة";
+    const multiplier = getMultiplier(earliest, tUnit);
+    const price = earliest.price / multiplier;
 
-    const qty = Number(tempQuantity);
-    const conversion = Number(earliest.unitConversion || 1);
-    const soldInBoxes = tempUnit === "شريط" ? qty / conversion : qty;
+    const qty = 1;
+    const soldInBoxes = qty / multiplier;
     const originalQty = Number(earliest.quantity || 0);
     const remaining = Math.max(0, originalQty - soldInBoxes);
 
     const newItem = {
       name: earliest.name,
       _id: earliest._id,
+      batchId: earliest.batchId,         // batch subdoc id for stock tracking
+      barcode: earliest.barcode,         // batch barcode for checkout API
       price,
       quantity: qty,
-      unit: tempUnit,
+      unit: tUnit,
       total: price * qty,
       expiry: earliest.expiryDate ? new Date(earliest.expiryDate).toISOString() : null,
       unitOptions: earliest.unitOptions || [earliest.unit],
@@ -143,39 +191,36 @@ const CheckoutPage = () => {
 
     addItem(newItem);
     decreaseStock(earliest, soldInBoxes);
-
   }, [products, addItem, decreaseStock]);
 
   const handleDeleteItem = (index) => {
     const removedItem = removeItem(index);
     if (removedItem) {
-      const { _id, expiry, unit, fullProduct, quantity } = removedItem;
-      const unitConversion = Number(fullProduct.unitConversion || 1);
-      const productBaseUnit = fullProduct.unit;
+      const { batchId, expiry, unit, fullProduct, quantity } = removedItem;
+      const multiplier = getMultiplier(fullProduct, unit);
+      let restoreQty = quantity / multiplier;
 
-      let restoreQty = unit === "شريط" && productBaseUnit !== "شريط"
-        ? quantity / unitConversion
-        : quantity;
-
-      restoreStock(_id, expiry, unit, restoreQty);
+      // restoreStock now matches by batchId
+      restoreStock(batchId, expiry, unit, restoreQty);
     }
   };
 
-  const handleCheckoutClick = (isSadaqah) => {
+  const handleCheckoutClick = (isSadaqah, paymentMethod = "cash") => {
+    setPendingPaymentMethod(paymentMethod);
     if (settingsOptions.showCheckoutConfirm) {
       setIsPendingSadaqah(isSadaqah);
       setShowConfirm(true);
     } else {
-      handleCheckout(isSadaqah);
+      handleCheckout(isSadaqah, paymentMethod);
     }
   };
 
-  const handleCheckout = async (isSadaqah = false) => {
+  const handleCheckout = async (isSadaqah = false, paymentMethod = "cash") => {
     try {
-      const token = localStorage.getItem("token");
+      const token = Cookies.get("token");
       const response = await axios.post(
         "/api/checkout",
-        { items, isSadaqah },
+        { items, isSadaqah, paymentMethod },
         {
           headers: { Authorization: `Bearer ${token}` },
           validateStatus: () => true,
@@ -183,17 +228,16 @@ const CheckoutPage = () => {
       );
 
       if (response.status !== 201) {
-        setErrorMessage(
+        toast.error(
           response.data?.error ||
           response.data?.message ||
           `فشل الدفع (رمز الحالة: ${response.status}) ❌`
         );
-        setShowError(true);
         return;
       }
 
-      setSuccessMessage("تمت عملية البيع بنجاح ✅");
-      setShowSuccess(true);
+      const methodLabel = paymentMethod === "tablet" ? "(تابلت)" : "(كاش)";
+      toast.success(`تمت عملية البيع بنجاح ${methodLabel} ✅`);
       clearCart();
 
     } catch (error) {
@@ -203,8 +247,7 @@ const CheckoutPage = () => {
         error.response?.data?.message ||
         error.message ||
         "حدث خطأ أثناء الدفع ❌";
-      setErrorMessage(message);
-      setShowError(true);
+      toast.error(message);
     }
   };
 
@@ -234,7 +277,9 @@ const CheckoutPage = () => {
   }, [showSearch, products]);
 
   useEffect(() => {
-    if (variants.length > 0) {
+    // Only auto-select from variants during MANUAL interaction.
+    // During AI macro, the macro itself sets unit/quantity -- skip to avoid overwriting.
+    if (variants.length > 0 && !aiMacro) {
       const earliest = [...variants].sort(
         (a, b) => new Date(a.expiryDate) - new Date(b.expiryDate)
       )[0];
@@ -243,113 +288,106 @@ const CheckoutPage = () => {
       setTempUnit(earliest.unitOptions?.[0] || earliest.unit || "علبة");
       setTempQuantity(1);
     }
-  }, [variants]);
+  }, [variants, aiMacro]);
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 8, flexGrow: 1, overflow: "unset" }}>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" dir="rtl">
       <BarcodeScanner onScan={handleScan} />
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: 4, mt: 4 }}>
-        <Box>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-4">
+        {/* Left Column: Table */}
+        <div className="lg:col-span-2">
           <ProductsTable
             items={items}
             setItems={setItems}
             setShowSearch={setShowSearch}
             onDelete={handleDeleteItem}
           />
-        </Box>
+        </div>
 
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          <Box className="glass-card" sx={{ p: 4, textAlign: 'center', bgcolor: 'var(--glass-bg)' }}>
-            <Typography variant="h6" sx={{ color: 'var(--primary)', mb: 1, fontWeight: 600 }}>
-              💰 الإجمالي النهائي
-            </Typography>
-            <Typography variant="h3" sx={{ fontWeight: 800, color: 'var(--secondary)', mb: 3 }}>
-              {total.toFixed(2)} <small style={{ fontSize: '1.2rem' }}>جنيه</small>
-            </Typography>
+        {/* Right Column: Checkout Sidebar */}
+        <div className="space-y-6">
+          <Card className="glass-morphism border-none shadow-2xl p-8 rounded-[32px] overflow-hidden relative group">
+            <div className="absolute top-0 left-0 right-0 h-1 premium-gradient opacity-50 group-hover:opacity-100 transition-opacity" />
 
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div className="flex flex-col items-center gap-4 mb-8">
+              <div className="p-4 rounded-3xl bg-primary/10 border border-primary/20">
+                <Calculator className="h-8 w-8 text-primary" />
+              </div>
+              <div className="text-center">
+                <h2 className="text-sm font-black text-muted-foreground uppercase tracking-[0.2em] mb-1">
+                  Total Amount
+                </h2>
+                <div className="text-5xl font-black text-primary tracking-tighter flex items-center justify-center gap-2">
+                  {total.toFixed(2)}
+                  <span className="text-xl font-bold opacity-70">ج.م</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
               <Button
-                variant="contained"
                 disabled={items.length === 0}
-                fullWidth
-                sx={{
-                  py: 2,
-                  fontSize: "1.2rem",
-                  borderRadius: "12px",
-                  fontWeight: 700,
-                  bgcolor: 'var(--primary)',
-                  boxShadow: '0 4px 14px 0 rgba(0,137,123,0.39)',
-                  transition: "0.3s",
-                  "&:hover": { bgcolor: "var(--primary-hover)", transform: "translateY(-2px)" },
-                }}
-                onClick={() => handleCheckoutClick(false)}
+                onClick={() => handleCheckoutClick(false, "cash")}
+                className="w-full h-16 rounded-2xl premium-gradient text-white text-xl font-black tracking-widest uppercase shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all group"
               >
-                💵 دفع كاش
+                <Wallet className="ml-3 h-6 w-6 group-hover:rotate-12 transition-transform" />
+                دفع كاش
               </Button>
 
               <Button
-                variant="contained"
                 disabled={items.length === 0}
-                fullWidth
-                sx={{
-                  py: 2,
-                  fontSize: "1.2rem",
-                  borderRadius: "12px",
-                  fontWeight: 700,
-                  bgcolor: '#673ab7',
-                  boxShadow: '0 4px 14px 0 rgba(103,58,183,0.39)',
-                  transition: "0.3s",
-                  "&:hover": { bgcolor: "#5e35b1", transform: "translateY(-2px)" },
-                }}
-                onClick={() => handleCheckoutClick(true)}
+                onClick={() => handleCheckoutClick(true, "cash")}
+                className="w-full h-16 rounded-2xl bg-violet-600 hover:bg-violet-700 text-white text-xl font-black tracking-widest uppercase shadow-xl shadow-violet-500/20 hover:scale-[1.02] active:scale-95 transition-all group"
               >
-                💜 تبرع / صدقة
+                <Heart className="ml-3 h-6 w-6 group-hover:scale-125 transition-transform fill-white" />
+                تبرع / صدقة
               </Button>
 
-              <Button
-                variant="outlined"
-                color="warning"
-                disabled={items.length === 0}
-                fullWidth
-                sx={{
-                  py: 2,
-                  fontSize: "1.1rem",
-                  borderRadius: "12px",
-                  fontWeight: 600,
-                  borderWidth: '2px',
-                  "&:hover": { borderWidth: '2px', transform: "translateY(-2px)" },
-                }}
-                onClick={() => setShowDebt(true)}
-              >
-                ➕ إضافة دين
-              </Button>
+              <div className="pt-2">
+                <Button
+                  variant="outline"
+                  disabled={items.length === 0}
+                  onClick={() => setShowDebt(true)}
+                  className="w-full h-14 rounded-2xl border-2 border-primary/20 text-primary hover:bg-primary/5 text-lg font-black tracking-widest uppercase transition-all"
+                >
+                  <PlusCircle className="ml-3 h-5 w-5" />
+                  إضافة دين
+                </Button>
+              </div>
 
               <Button
-                variant="text"
-                color="error"
+                variant="ghost"
                 disabled={items.length === 0}
                 onClick={clearCart}
-                sx={{ mt: 1, fontWeight: 600 }}
+                className="w-full h-12 rounded-2xl text-destructive hover:bg-destructive/10 font-bold transition-all"
               >
-                🗑️ مسح السلة
+                <Trash2 className="ml-2 h-4 w-4" />
+                مسح السلة
               </Button>
-            </Box>
-          </Box>
-        </Box>
-      </Box>
+            </div>
+          </Card>
+
+          {/* Quick Stats / Info Widget */}
+          <Card className="glass-morphism border-none shadow-lg p-6 rounded-[28px] bg-primary/5 border border-primary/20">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Receipt className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <div className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Active Session</div>
+                <div className="text-sm font-bold">{items.length} Products in cart</div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
 
       <DebtModal
         items={items}
         total={total}
         showDebt={showDebt}
         setShowDebt={setShowDebt}
-        onClose={() => setShowDebt(false)}
-        onSuccess={(order) => {
-          setSuccessMessage("تم الحفظ في الديون بنجاح ✅");
-          setShowSuccess(true);
-          clearCart();
-        }}
         handleReset={clearCart}
       />
 
@@ -357,7 +395,7 @@ const CheckoutPage = () => {
         open={Boolean(barcodeNotFound)}
         onClose={() => setBarcodeNotFound(null)}
         title="الباركود غير موجود"
-        message={<span>الباركود "<strong>{barcodeNotFound}</strong>" غير موجود في قاعدة البيانات ❌</span>}
+        message={`الباركود "${barcodeNotFound}" غير موجود في قاعدة البيانات ❌`}
         type="error"
       />
 
@@ -365,20 +403,12 @@ const CheckoutPage = () => {
         open={showConfirm}
         onClose={() => setShowConfirm(false)}
         title="تأكيد عملية البيع"
-        message={`هل أنت متأكد من إتمام عملية البيع بقيمة ${total.toFixed(2)} ج.م؟`}
+        message={`هل أنت متأكد من إتمام عملية البيع بقيمة ${total.toFixed(2)} ج.م؟ (${pendingPaymentMethod === "tablet" ? "تابلت" : "كاش"})`}
         type="info"
         onConfirm={() => {
           setShowConfirm(false);
-          handleCheckout(isPendingSadaqah);
+          handleCheckout(isPendingSadaqah, pendingPaymentMethod);
         }}
-      />
-
-      <CustomDialog
-        open={showError}
-        onClose={() => setShowError(false)}
-        title="خطأ"
-        message={errorMessage}
-        type="error"
       />
 
       <ProductSelectDialog
@@ -395,21 +425,15 @@ const CheckoutPage = () => {
         setTempUnit={setTempUnit}
         tempExpiry={tempExpiry}
         setTempExpiry={setTempExpiry}
+        tempPillsPerStrip={tempPillsPerStrip}
+        setTempPillsPerStrip={setTempPillsPerStrip}
         variants={variants}
         setVariants={setVariants}
         handleAddProduct={handleAddProduct}
+        aiMacro={aiMacro}
+        setAiMacro={setAiMacro}
       />
-      <Snackbar
-        open={showSuccess}
-        autoHideDuration={3000}
-        onClose={() => setShowSuccess(false)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert severity="success" variant="filled" sx={{ width: '100%', fontWeight: 700, borderRadius: '12px' }}>
-          {successMessage}
-        </Alert>
-      </Snackbar>
-    </Container>
+    </div>
   );
 };
 

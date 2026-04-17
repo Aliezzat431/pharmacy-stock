@@ -1,28 +1,19 @@
-import { getDb } from "@/app/lib/db";
+import { supabase } from "@/app/lib/supabase";
 import { NextResponse } from "next/server";
 import { verifyToken } from "@/app/lib/verifyToken";
 import { getSetting } from "@/app/lib/getSetting";
-import { getProductModel } from "@/app/lib/models/Product";
-import { getOrderModel, getDebtorModel } from "@/app/lib/models/Order";
-import { getWinningModel } from "@/app/lib/models/Winning";
+import { logActivity } from "@/app/lib/logActivity";
+import { deductProductQuantity } from "@/app/lib/productHelpers";
 
 export async function POST(req) {
-  let session;
-
   try {
-    const user = verifyToken(req.headers);
+    const user = await verifyToken(req.headers);
     if (!user) {
       return NextResponse.json(
         { success: false, message: "Unauthorized" },
         { status: 401 }
       );
     }
-
-    const conn = await getDb(user.pharmacyId);
-    const Product = getProductModel(conn);
-    const Order = getOrderModel(conn);
-    const Debtor = getDebtorModel(conn);
-    const Winning = getWinningModel(conn);
 
     const body = await req.json();
 
@@ -51,235 +42,239 @@ export async function POST(req) {
       );
     }
 
-    // ====== transaction ======
-    session = await conn.startSession();
-    session.startTransaction();
+    const createdItems = [];
+    let totalOrderAmount = 0;
+    let totalProfit = 0;
+    const reasonParts = [];
 
-    try {
-      const createdItems = [];
-      let totalOrderAmount = 0;
-      const reasonParts = [];
+    for (const productData of products) {
+      const {
+        name,
+        unit,
+        quantity,
+        fullProduct,
+        price,
+        unitOptions = [],
+      } = productData;
 
-      for (const productData of products) {
-        const {
-          name,
-          unit,
-          quantity,
-          fullProduct,
-          price,
-          unitOptions = [],
-        } = productData;
+      const parsedQuantity = Number(quantity);
+      const normalizedUnit = typeof unit === "string" ? unit : unit?.value || "";
 
-        const parsedQuantity = Number(quantity);
-        const normalizedUnit =
-          typeof unit === "string" ? unit : unit?.value || "";
+      if (!name || !normalizedUnit || parsedQuantity === undefined) {
+        throw new Error("يجب توفير الاسم والوحدة والكمية على الأقل لكل منتج");
+      }
 
-        if (!name || !normalizedUnit || parsedQuantity === undefined) {
-          throw new Error(
-            "يجب توفير الاسم والوحدة والكمية على الأقل لكل منتج"
-          );
-        }
+      if (isNaN(parsedQuantity) || parsedQuantity <= 0) {
+        throw new Error(`الكمية غير صحيحة للمنتج "${name}".`);
+      }
 
-        if (isNaN(parsedQuantity) || parsedQuantity <= 0) {
-          throw new Error(`الكمية غير صحيحة للمنتج "${name}".`);
-        }
+      const usedPrice = Number(price || fullProduct?.price || 0);
+      if (isNaN(usedPrice) || usedPrice < 0) {
+        throw new Error(`السعر غير صحيح للمنتج "${name}".`);
+      }
 
-        const usedPrice = Number(price || fullProduct?.price || 0);
-        if (isNaN(usedPrice) || usedPrice < 0) {
-          throw new Error(`السعر غير صحيح للمنتج "${name}".`);
-        }
+      const itemTotal = usedPrice * parsedQuantity;
 
-        const itemTotal = usedPrice * parsedQuantity;
+      const normalizedUnitOptions = unitOptions
+        .map((opt) => (typeof opt === "string" ? opt : opt?.value || ""))
+        .filter(Boolean);
 
-        const normalizedUnitOptions = unitOptions
-          .map((opt) => (typeof opt === "string" ? opt : opt?.value || ""))
-          .filter(Boolean);
+      createdItems.push({
+        name,
+        price: usedPrice,
+        quantity: parsedQuantity,
+        unit: normalizedUnit,
+        total: itemTotal,
+        unitOptions: normalizedUnitOptions,
+        fullProduct: fullProduct || {},
+      });
 
-        createdItems.push({
-          name,
-          price: usedPrice,
-          quantity: parsedQuantity,
-          unit: normalizedUnit,
-          total: itemTotal,
-          unitOptions: normalizedUnitOptions,
-          fullProduct: fullProduct || {},
-        });
+      // ====== Stock Update ======
+      const isAgel =
+        fullProduct?._id === "agel" ||
+        fullProduct?.id === "agel" ||
+        fullProduct?.type === "agel";
 
-        // ====== Stock Update ======
-        const isAgel =
-          fullProduct?._id === "agel" ||
-          fullProduct?.id === "agel" ||
-          fullProduct?.type === "agel";
+      if (!isAgel && (fullProduct?._id || fullProduct?.id)) {
+        const prodId = fullProduct.id || fullProduct._id;
 
-        if (!isAgel && (fullProduct?._id || fullProduct?.id)) {
-          const prodId = fullProduct._id || fullProduct.id;
+        const { data: product, error: prodError } = await supabase
+            .from('products')
+            .select('*')
+            .eq('id', prodId)
+            .single();
 
-          const product = await Product.findById(prodId).session(session);
-
-          if (product) {
-            const baseUnit = product.unit;
-            const unitConversion = product.unitConversion ?? 1;
-            let decrementAmount = parsedQuantity;
-
-            if (normalizedUnit !== baseUnit && unitConversion > 0) {
-              decrementAmount = parsedQuantity / unitConversion;
-            }
-
-            if (decrementAmount > product.quantity) {
-              throw new Error(
-                `الكمية المطلوبة (${decrementAmount}) أكبر من المتوفر (${product.quantity}) للمنتج "${product.name}".`
-              );
-            }
-
-            product.quantity -= decrementAmount;
-
-            const threshold = await getSetting(conn, "lowStockThreshold", 5);
-            product.isShortcoming = product.quantity < threshold;
-
-            await product.save({ session });
-          } else {
-            throw new Error(`المنتج غير موجود في المخزون: ${name}`);
+        if (product) {
+          let quantityToDeduct = parsedQuantity;
+          // Unit conversion logic (simplified)
+          if (normalizedUnit !== product.unit && product.unit_conversion > 0) {
+              quantityToDeduct = parsedQuantity / product.unit_conversion;
           }
+
+          const deduction = await deductProductQuantity(
+              product.id,
+              quantityToDeduct,
+              product.inventory_method || 'FEFO'
+          );
+          
+          totalProfit += deduction.profit;
+        } else {
+          throw new Error(`المنتج غير موجود في المخزون: ${name}`);
         }
-
-        totalOrderAmount += itemTotal;
-        reasonParts.push(`${parsedQuantity} ${normalizedUnit} ${name}`);
       }
 
-      if (payAmount > totalOrderAmount) {
-        throw new Error(
-          "المبلغ المدفوع لا يمكن أن يكون أكبر من إجمالي الطلب."
-        );
-      }
+      totalOrderAmount += itemTotal;
+      reasonParts.push(`${parsedQuantity} ${normalizedUnit} ${name}`);
+    }
 
-      // ====== Find or create debtor ======
-      let debtor = await Debtor.findOne({ name: body.name }).session(session);
+    if (payAmount > totalOrderAmount) {
+      throw new Error("المبلغ المدفوع لا يمكن أن يكون أكبر من إجمالي الطلب.");
+    }
 
-      if (!debtor) {
-        debtor = await Debtor.create(
-          [{ name: body.name, partialPayments: 0 }],
-          { session }
-        );
-        debtor = debtor[0];
-      }
+    // ====== Find or create debtor ======
+    let { data: debtor, error: dError } = await supabase
+        .from('debtors')
+        .select('*')
+        .eq('name', body.name.trim())
+        .single();
 
-      // ====== Create Order ======
-      await Order.create(
-        [
-          {
-            debtorId: debtor._id,
+    if (!debtor) {
+        const { data: newDebtor, error: nError } = await supabase
+            .from('debtors')
+            .insert({ name: body.name.trim(), partial_payments: 0 })
+            .select()
+            .single();
+        if (nError) throw nError;
+        debtor = newDebtor;
+    }
+
+    // ====== Create Order ======
+    const { error: oError } = await supabase
+        .from('orders')
+        .insert({
+            debtor_id: debtor.id,
             total: totalOrderAmount,
-            items: createdItems,
-          },
-        ],
-        { session }
-      );
+            items: createdItems
+        });
+    if (oError) throw oError;
 
-      // ====== Winning & Debtor Update ======
-      if (payAmount > 0) {
-        debtor.partialPayments += payAmount;
-        await debtor.save({ session });
+    // ====== Winning & Debtor Update ======
+    if (payAmount > 0) {
+        await supabase
+            .from('debtors')
+            .update({ partial_payments: (debtor.partial_payments || 0) + payAmount })
+            .eq('id', debtor.id);
 
-        await Winning.create(
-          [
-            {
-              amount: payAmount,
-              reason: `دفع جزئي عند تسجيل دين للعميل ${body.name} عن ${reasonParts.join(
-                " + "
-              )}`,
-              transactionType: "in",
-            },
-          ],
-          { session }
-        );
-      } else {
-        await Winning.create(
-          [
-            {
-              amount: totalOrderAmount,
-              reason: `تم تسجيل دين للعميل ${body.name} بدون دفع (سند معلق)`,
-              transactionType: "suspended",
-            },
-          ],
-          { session }
-        );
-      }
+        await supabase
+            .from('winnings')
+            .insert({
+                amount: payAmount,
+                reason: `دفع جزئي عند تسجيل دين للعميل ${body.name} عن ${reasonParts.join(" + ")}`,
+                transaction_type: "in",
+                date: new Date().toISOString()
+            });
+    } else {
+        await supabase
+            .from('winnings')
+            .insert({
+                amount: totalOrderAmount,
+                profit: totalProfit,
+                reason: `تم تسجيل دين للعميل ${body.name} بدون دفع (سند معلق)`,
+                transaction_type: "suspended",
+                debtor_id: debtor.id,
+                date: new Date().toISOString()
+            });
+    }
 
-      // ====== Final check for full payment ======
-      const debtAggregation = await Order.aggregate([
-        { $match: { debtorId: debtor._id } },
-        { $group: { _id: null, totalDebt: { $sum: "$total" } } },
-      ]).session(session);
+    // ====== Final check for full payment ======
+    const { data: orders } = await supabase
+        .from('orders')
+        .select('total')
+        .eq('debtor_id', debtor.id);
+    
+    const totalDebtAmount = orders?.reduce((sum, o) => sum + (Number(o.total) || 0), 0) || 0;
+    const { data: updatedDebtor } = await supabase
+        .from('debtors')
+        .select('partial_payments')
+        .eq('id', debtor.id)
+        .single();
 
-      const totalDebtAmount = debtAggregation[0]?.totalDebt || 0;
+    if (updatedDebtor && updatedDebtor.partial_payments >= totalDebtAmount) {
+        await supabase.from('orders').delete().eq('debtor_id', debtor.id);
+        await supabase.from('debtors').delete().eq('id', debtor.id);
+    }
 
-      if (debtor.partialPayments >= totalDebtAmount) {
-        await Debtor.findByIdAndDelete(debtor._id, { session });
-        await Order.deleteMany({ debtorId: debtor._id }, { session });
-      }
-
-      await session.commitTransaction();
-
-      return NextResponse.json({
-        success: true,
-        createdProducts: createdItems,
+    // Log activity
+    await logActivity(null, {
+      action: 'debt_create',
+      userId: user.userId,
+      username: user.username,
+      description: `إنشاء دين للعميل "${body.name}" بمبلغ ${totalOrderAmount.toFixed(2)} جنيه (مدفوع: ${payAmount} جنيه)`,
+      metadata: {
+        debtorName: body.name,
         totalAmount: totalOrderAmount,
         paidAmount: payAmount,
         remainingAmount: totalOrderAmount - payAmount,
-        reason: reasonParts.join(" + "),
-      });
-    } catch (innerError) {
-      await session.abortTransaction();
-      console.error("Transaction error:", innerError);
-      return NextResponse.json({ error: innerError.message }, { status: 400 });
-    }
+        itemsCount: createdItems.length,
+        items: reasonParts
+      }
+    });
+
+    return NextResponse.json({
+      success: true,
+      createdProducts: createdItems,
+      totalAmount: totalOrderAmount,
+      paidAmount: payAmount,
+      remainingAmount: totalOrderAmount - payAmount,
+      reason: reasonParts.join(" + "),
+    });
+
   } catch (error) {
     console.error("POST error:", error);
-    return NextResponse.json({ error: "خطأ في الخادم" }, { status: 500 });
-  } finally {
-    if (session) {
-      try {
-        session.endSession();
-      } catch (e) {
-        console.warn("Failed to end session:", e);
-      }
-    }
+    return NextResponse.json({ error: error.message || "خطأ في الخادم" }, { status: 500 });
   }
 }
 
 
 export async function GET(req) {
   try {
-    const user = verifyToken(req.headers);
+    const user = await verifyToken(req.headers);
     if (!user)
       return NextResponse.json(
         { success: false, message: "Unauthorized" },
         { status: 401 }
       );
 
-    const conn = await getDb(user.pharmacyId);
-    const Order = getOrderModel(conn);
-    const Debtor = getDebtorModel(conn);
+    const { data: debtors, error: debtorError } = await supabase
+        .from('debtors')
+        .select('*');
 
-    const debtors = await Debtor.find({}).lean();
+    if (debtorError) throw debtorError;
 
     const enrichedDebtors = await Promise.all(
       debtors.map(async (debtor) => {
-        const orders = await Order.find({ debtorId: debtor._id }).lean();
+        const { data: orders, error: orderError } = await supabase
+            .from('orders')
+            .select('*')
+            .eq('debtor_id', debtor.id);
+
+        if (orderError) throw orderError;
 
         const ordersTotal = orders.reduce(
-          (sum, order) => sum + (order.total || 0),
+          (sum, order) => sum + (Number(order.total) || 0),
           0
         );
-        const paid = debtor.partialPayments || 0;
+        const paid = Number(debtor.partial_payments || 0);
         const totalDebt = ordersTotal - paid;
 
         return {
           ...debtor,
-          orders,
+          _id: debtor.id,
+          orders: orders.map(o => ({ ...o, _id: o.id })),
           totalDebt,
           totalOrders: ordersTotal,
           paid,
+          partialPayments: paid
         };
       })
     );
@@ -295,20 +290,13 @@ export async function GET(req) {
 }
 
 export async function PATCH(req) {
-  let session;
-
   try {
-    const user = verifyToken(req.headers);
+    const user = await verifyToken(req.headers);
     if (!user)
       return NextResponse.json(
         { success: false, message: "Unauthorized" },
         { status: 401 }
       );
-
-    const conn = await getDb(user.pharmacyId);
-    const Order = getOrderModel(conn);
-    const Debtor = getDebtorModel(conn);
-    const Winning = getWinningModel(conn);
 
     const body = await req.json();
     const { name, payAmount } = body;
@@ -320,131 +308,133 @@ export async function PATCH(req) {
       );
     }
 
-    const debtor = await Debtor.findOne({ name });
-    if (!debtor)
+    const { data: debtor, error: dError } = await supabase
+        .from('debtors')
+        .select('*')
+        .eq('name', name)
+        .single();
+
+    if (dError || !debtor)
       return NextResponse.json(
         { message: "المدين غير موجود" },
         { status: 404 }
       );
 
-    session = await conn.startSession();
-    session.startTransaction();
+    let remaining = payAmount;
+    let totalPaid = 0;
 
-    try {
-      let remaining = payAmount;
-      let totalPaid = 0;
+    // Handle suspended transactions first
+    const { data: suspendedTransactions } = await supabase
+        .from('winnings')
+        .select('*')
+        .eq('transaction_type', 'suspended')
+        .eq('debtor_id', debtor.id)
+        .order('date', { ascending: true });
 
-      // Handle suspended transactions first
-      const suspendedTransactions = await Winning.find({
-        transactionType: "suspended",
-        reason: { $regex: name, $options: "i" },
-      })
-        .sort({ date: 1 })
-        .session(session);
+    if (suspendedTransactions) {
+        for (const tx of suspendedTransactions) {
+            if (remaining <= 0) break;
+            const deductAmount = Math.min(Number(tx.amount), remaining);
+            remaining -= deductAmount;
+            totalPaid += deductAmount;
 
-      for (const tx of suspendedTransactions) {
-        if (remaining <= 0) break;
-        const deductAmount = Math.min(tx.amount, remaining);
-        remaining -= deductAmount;
-        totalPaid += deductAmount;
+            if (deductAmount === Number(tx.amount)) {
+                await supabase.from('winnings').delete().eq('id', tx.id);
+            } else {
+                await supabase.from('winnings').update({ amount: Number(tx.amount) - deductAmount }).eq('id', tx.id);
+            }
 
-        if (deductAmount === tx.amount) {
-          await Winning.findByIdAndDelete(tx._id, { session });
-        } else {
-          tx.amount -= deductAmount;
-          await tx.save({ session });
+            await supabase
+                .from('winnings')
+                .insert({
+                    amount: deductAmount,
+                    reason: `تم خصم ${deductAmount} من المعاملة المعلقة للعميل ${name}`,
+                    transaction_type: "in",
+                    date: new Date().toISOString()
+                });
         }
+    }
 
-        await Winning.create(
-          [
-            {
-              amount: deductAmount,
-              reason: `تم خصم ${deductAmount} من المعاملة المعلقة للعميل ${name}`,
-              transactionType: "in",
-            },
-          ],
-          { session }
-        );
-      }
+    // Handle debt update
+    if (remaining > 0) {
+        const { data: orders } = await supabase
+            .from('orders')
+            .select('total')
+            .eq('debtor_id', debtor.id);
 
-      // Handle debt update
-      if (remaining > 0) {
-        const debtAggregation = await Order.aggregate([
-          { $match: { debtorId: debtor._id } },
-          { $group: { _id: null, totalDebt: { $sum: "$total" } } },
-        ]).session(session);
-
-        const totalDebt = debtAggregation[0]?.totalDebt || 0;
-        const currentPaid = debtor.partialPayments || 0;
+        const totalDebt = orders?.reduce((sum, o) => sum + (Number(o.total) || 0), 0) || 0;
+        const currentPaid = Number(debtor.partial_payments || 0);
         const balanceDebt = totalDebt - currentPaid;
 
         if (balanceDebt > 0) {
-          const partialPayment = Math.min(remaining, balanceDebt);
-          remaining -= partialPayment;
-          totalPaid += partialPayment;
+            const partialPayment = Math.min(remaining, balanceDebt);
+            remaining -= partialPayment;
+            totalPaid += partialPayment;
 
-          debtor.partialPayments += partialPayment;
-          await debtor.save({ session });
+            await supabase
+                .from('debtors')
+                .update({ partial_payments: currentPaid + partialPayment })
+                .eq('id', debtor.id);
 
-          await Winning.create(
-            [
-              {
-                amount: partialPayment,
-                reason: `تم دفع ${partialPayment} من ديون المنتجات للعميل ${name}`,
-                transactionType: "in",
-              },
-            ],
-            { session }
-          );
+            await supabase
+                .from('winnings')
+                .insert({
+                    amount: partialPayment,
+                    reason: `تم دفع ${partialPayment} من ديون المنتجات للعميل ${name}`,
+                    transaction_type: "in",
+                    date: new Date().toISOString()
+                });
         }
-      }
+    }
 
-      // Final check for full payment
-      const finalDebtAggregation = await Order.aggregate([
-        { $match: { debtorId: debtor._id } },
-        { $group: { _id: null, totalDebt: { $sum: "$total" } } },
-      ]).session(session);
-      const finalTotalDebt = finalDebtAggregation[0]?.totalDebt || 0;
+    // Final check for full payment
+    const { data: finalOrders } = await supabase
+        .from('orders')
+        .select('total')
+        .eq('debtor_id', debtor.id);
+    const finalTotalDebt = finalOrders?.reduce((sum, o) => sum + (Number(o.total) || 0), 0) || 0;
 
-      if (debtor.partialPayments >= finalTotalDebt) {
-        const leftSuspendedCount = await Winning.countDocuments({
-          transactionType: "suspended",
-          reason: { $regex: name, $options: "i" },
-        }).session(session);
+    const { data: finalDebtor } = await supabase
+        .from('debtors')
+        .select('partial_payments')
+        .eq('id', debtor.id)
+        .single();
+
+    if (finalDebtor && Number(finalDebtor.partial_payments) >= finalTotalDebt) {
+        const { count: leftSuspendedCount } = await supabase
+            .from('winnings')
+            .select('*', { count: 'exact', head: true })
+            .eq('transaction_type', 'suspended')
+            .ilike('reason', `%${name}%`);
 
         if (leftSuspendedCount === 0) {
-          await Debtor.findByIdAndDelete(debtor._id, { session });
-          await Order.deleteMany({ debtorId: debtor._id }, { session });
+            await supabase.from('orders').delete().eq('debtor_id', debtor.id);
+            await supabase.from('debtors').delete().eq('id', debtor.id);
         }
-      }
-
-      await session.commitTransaction();
-
-      return NextResponse.json(
-        { message: "تم الدفع وتسجيل الخصم", totalPaid },
-        { status: 200 }
-      );
-    } catch (innerError) {
-      await session.abortTransaction();
-      console.error("PATCH transaction error:", innerError);
-      return NextResponse.json(
-        { message: innerError.message },
-        { status: 400 }
-      );
     }
+
+    // Log activity
+    await logActivity(null, {
+      action: 'debt_payment',
+      userId: user.userId,
+      username: user.username,
+      description: `دفع ${totalPaid.toFixed(2)} جنيه من دين العميل "${name}"`,
+      metadata: {
+        debtorName: name,
+        paymentAmount: totalPaid,
+        requestedAmount: payAmount
+      }
+    });
+
+    return NextResponse.json(
+      { message: "تم الدفع وتسجيل الخصم", totalPaid },
+      { status: 200 }
+    );
   } catch (error) {
     console.error("PATCH /api/debt error:", error);
     return NextResponse.json(
-      { message: "فشل في تحديث الديون" },
+      { message: "فشل في تحديث الديون: " + error.message },
       { status: 500 }
     );
-  } finally {
-    if (session) {
-      try {
-        session.endSession();
-      } catch (e) {
-        console.warn("Failed to end session:", e);
-      }
-    }
   }
 }

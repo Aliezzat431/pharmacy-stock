@@ -1,11 +1,11 @@
-import { getDb } from "@/app/lib/db";
+import { supabase } from "@/app/lib/supabase";
 import { verifyToken } from "@/app/lib/verifyToken";
 import { NextResponse } from "next/server";
-import { getSettingModel } from "@/app/lib/models/Setting";
+import { logActivity } from "@/app/lib/logActivity";
 
 export async function GET(req) {
   try {
-    const user = verifyToken(req.headers);
+    const user = await verifyToken(req.headers);
     if (!user) {
       return NextResponse.json(
         { success: false, message: "Unauthorized" },
@@ -13,12 +13,13 @@ export async function GET(req) {
       );
     }
 
-    const conn = await getDb(user.pharmacyId);
-    const Setting = getSettingModel(conn);
+    const { data: allSettings, error } = await supabase
+        .from('settings')
+        .select('*');
 
-    const allSettings = await Setting.find({}).lean();
+    if (error) throw error;
 
-    const settingsObj = allSettings.reduce((acc, curr) => {
+    const settingsObj = (allSettings || []).reduce((acc, curr) => {
       acc[curr.key] = curr.value;
       return acc;
     }, {});
@@ -35,7 +36,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    const user = verifyToken(req.headers);
+    const user = await verifyToken(req.headers);
     if (!user) {
       return NextResponse.json(
         { success: false, message: "Unauthorized" },
@@ -60,14 +61,25 @@ export async function POST(req) {
       );
     }
 
-    const conn = await getDb(user.pharmacyId);
-    const Setting = getSettingModel(conn);
+    const { data: updatedSetting, error: upError } = await supabase
+        .from('settings')
+        .upsert({ key, value }, { onConflict: 'key' })
+        .select()
+        .single();
 
-    const updatedSetting = await Setting.findOneAndUpdate(
-      { key },
-      { value },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
+    if (upError) throw upError;
+
+    // Log activity
+    await logActivity(null, {
+      action: 'settings_update',
+      userId: user.userId,
+      username: user.username,
+      description: `تحديث إعداد "${key}" إلى "${value}"`,
+      metadata: {
+        key,
+        newValue: value
+      }
+    });
 
     return NextResponse.json({
       success: true,

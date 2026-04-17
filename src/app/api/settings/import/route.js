@@ -1,24 +1,14 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/app/lib/db";
+import { supabase } from "@/app/lib/supabase";
 import { verifyToken } from "@/app/lib/verifyToken";
-import { getProductModel } from "@/app/lib/models/Product";
-import { getCompanyModel } from "@/app/lib/models/Company";
-import { getWinningModel } from "@/app/lib/models/Winning";
 import { getSetting } from "@/app/lib/getSetting";
-import { typesWithUnits } from "@/app/lib/unitOptions";
+import { typesWithUnits, treatmentTypes } from "@/app/lib/unitOptions";
 
 export async function POST(req) {
-  let session;
-
   try {
-    const user = verifyToken(req.headers);
+    const user = await verifyToken(req.headers);
     if (!user)
       return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
-
-    const conn = await getDb(user.pharmacyId);
-    const Product = getProductModel(conn);
-    const Company = getCompanyModel(conn);
-    const Winning = getWinningModel(conn);
 
     const body = await req.json();
 
@@ -26,119 +16,132 @@ export async function POST(req) {
       return NextResponse.json({ error: "يجب إرسال قائمة منتجات صحيحة (مصفوفة غير فارغة)." }, { status: 400 });
     }
 
-    const threshold = await getSetting(conn, "lowStockThreshold", 5);
+    const threshold = await getSetting(null, "lowStockThreshold", 5);
 
-    session = await conn.startSession();
-    session.startTransaction();
+    let totalAmount = 0;
+    const reasons = [];
 
-    try {
-      let totalAmount = 0;
-      const reasons = [];
-
-      for (const productData of body) {
+    for (const productData of body) {
         const {
-          name,
-          type,
-          quantity,
-          barcode,
-          unitConversion,
-          expiryDate,
-          purchasePrice,
-          salePrice,
-          company,
-          details,
+            name,
+            type,
+            quantity,
+            barcode,
+            unitConversion,
+            expiryDate,
+            purchasePrice,
+            salePrice,
+            company,
+            details,
         } = productData;
 
         if (!name || !type || !barcode || !company || purchasePrice == null || salePrice == null || quantity == null) {
-          throw new Error("جميع الحقول مطلوبة: الاسم، النوع، السعرين، الكمية، الباركود، الشركة");
+            throw new Error(`جميع الحقول مطلوبة للمنتج "${name}": الاسم، النوع، السعرين، الكمية، الباركود، الشركة`);
         }
 
+        const typeDef = treatmentTypes.find(t => t.name === type);
+        if (!typeDef) {
+            throw new Error(`النوع "${type}" غير معروف.`);
+        }
         const allowedUnits = typesWithUnits[type];
-        if (!allowedUnits) {
-          throw new Error(`النوع "${type}" غير معروف.`);
-        }
 
-        // لو الشركة مش موجودة ينشأها
-        let companyDoc = await Company.findOne({ name: company }).session(session);
-        if (!companyDoc) {
-          companyDoc = await Company.create([{ name: company }], { session });
+        // Ensure company exists
+        const { data: existingCompany, error: compErr } = await supabase
+            .from('companies')
+            .select('name')
+            .eq('name', company)
+            .single();
+        
+        if (compErr && compErr.code !== 'PGRST116') throw compErr;
+
+        if (!existingCompany) {
+            await supabase.from('companies').insert({ name: company });
         }
 
         const parsedPurchasePrice = Number(purchasePrice);
         const parsedSalePrice = Number(salePrice);
         const parsedQuantity = Number(quantity);
-        const parsedUnitConversion = unitConversion ? Number(unitConversion) : null;
+        const parsedUnitConversion = unitConversion ? Number(unitConversion) : 1;
 
         if (isNaN(parsedPurchasePrice) || parsedPurchasePrice < 0) {
-          throw new Error(`سعر الشراء غير صحيح للمنتج "${name}".`);
+            throw new Error(`سعر الشراء غير صحيح للمنتج "${name}".`);
         }
         if (isNaN(parsedSalePrice) || parsedSalePrice < 0) {
-          throw new Error(`سعر البيع غير صحيح للمنتج "${name}".`);
+            throw new Error(`سعر البيع غير صحيح للمنتج "${name}".`);
         }
         if (isNaN(parsedQuantity) || parsedQuantity <= 0) {
-          throw new Error(`الكمية غير صحيحة للمنتج "${name}".`);
+            throw new Error(`الكمية غير صحيحة للمنتج "${name}".`);
         }
 
-        const hasMultipleUnits = allowedUnits.length === 2;
-        const latestUnit = allowedUnits.at(-1);
+        // Logic to find or create product
+        let { data: product, error: prodErr } = await supabase
+            .from('products')
+            .select('*')
+            .eq('name', name.trim())
+            .single();
 
-        if (hasMultipleUnits && (parsedUnitConversion === null || isNaN(parsedUnitConversion) || parsedUnitConversion <= 0)) {
-          throw new Error(`عدد الوحدات داخل العلبة يجب أن يكون رقمًا أكبر من صفر للمنتج "${name}"`);
+        if (prodErr && prodErr.code !== 'PGRST116') throw prodErr;
+
+        if (!product) {
+            const { data: newProd, error: insertErr } = await supabase
+                .from('products')
+                .insert({
+                    name: name.trim(),
+                    type,
+                    unit: typeDef.baseUnit,
+                    unit_conversion: parsedUnitConversion,
+                    company,
+                    unit_options: allowedUnits,
+                    is_shortcoming: parsedQuantity < threshold
+                })
+                .select()
+                .single();
+            
+            if (insertErr) throw insertErr;
+            product = newProd;
         }
 
-        // Merge logic
-        let product = await Product.findOne({ name: name.trim(), type: type, price: parsedSalePrice }).session(session);
+        // Add Batch
+        const { error: batchErr } = await supabase
+            .from('batches')
+            .insert({
+                product_id: product.id,
+                barcode,
+                quantity: parsedQuantity,
+                purchase_price: parsedPurchasePrice,
+                selling_price: parsedSalePrice,
+                expiry_date: expiryDate ? new Date(expiryDate).toISOString() : null,
+                purchase_date: new Date().toISOString()
+            });
 
-        if (product) {
-          if (!product.barcodes.includes(barcode)) product.barcodes.push(barcode);
-          product.barcode = barcode;
-          product.quantity += parsedQuantity;
-          product.isShortcoming = product.quantity < threshold;
-          await product.save({ session });
-        } else {
-          const newProduct = new Product({
-            name: name.trim(),
-            type,
-            unit: latestUnit,
-            quantity: parsedQuantity,
-            price: parsedSalePrice,
-            purchasePrice: parsedPurchasePrice,
-            barcode,
-            barcodes: [barcode],
-            unitConversion: parsedUnitConversion,
-            isBaseUnit: !hasMultipleUnits,
-            expiryDate,
-            isShortcoming: parsedQuantity < threshold,
-            company,
-            details: details || "",
-            unitOptions: allowedUnits
-          });
+        if (batchErr) throw batchErr;
 
-          product = await newProduct.save({ session });
-        }
+        // Update shortcoming status
+        const { data: allBatches } = await supabase
+            .from('batches')
+            .select('quantity')
+            .eq('product_id', product.id);
+        
+        const totalQty = (allBatches || []).reduce((sum, b) => sum + Number(b.quantity), 0);
+        await supabase.from('products').update({ is_shortcoming: totalQty < threshold }).eq('id', product.id);
 
         totalAmount += parsedPurchasePrice * parsedQuantity;
         reasons.push(`${parsedQuantity} ${product.unit} ${name}`);
-      }
-
-      if (totalAmount > 0) {
-        await Winning.create(
-          [{ amount: totalAmount, reason: `تم شراء ${reasons.join(" و ")}`, transactionType: "out" }],
-          { session }
-        );
-      }
-
-      await session.commitTransaction();
-      session.endSession();
-
-      return NextResponse.json({ success: true, message: "تم استيراد المنتجات بنجاح" }, { status: 201 });
-    } catch (innerError) {
-      await session.abortTransaction();
-      session.endSession();
-      return NextResponse.json({ error: innerError.message }, { status: 400 });
     }
+
+    if (totalAmount > 0) {
+        await supabase.from('winnings').insert({
+            amount: totalAmount,
+            reason: `تم استيراد مواد: ${reasons.join(" و ")}`,
+            transaction_type: "out",
+            date: new Date().toISOString()
+        });
+    }
+
+    return NextResponse.json({ success: true, message: "تم استيراد المنتجات بنجاح" }, { status: 201 });
+
   } catch (error) {
     console.error("POST /settings/import error:", error);
-    return NextResponse.json({ error: "حدث خطأ أثناء الاستيراد" }, { status: 500 });
+    return NextResponse.json({ error: error.message || "حدث خطأ أثناء الاستيراد" }, { status: 500 });
   }
 }

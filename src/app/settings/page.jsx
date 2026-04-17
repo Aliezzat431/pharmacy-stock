@@ -1,39 +1,53 @@
 "use client";
+
 import React, { useState, useEffect } from "react";
 import axios from "axios";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
-  Paper,
-  List,
-  ListItem,
-  Container,
-  Typography,
-  TextField,
-  Button,
-  Switch,
-  FormControlLabel,
-  Snackbar,
-  Alert,
   Dialog,
-  DialogTitle,
   DialogContent,
-  DialogActions,
-  Box,
-  Divider,
-  Grid,
-} from "@mui/material";
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
-  DarkMode as DarkModeIcon,
-  LightMode as LightModeIcon,
-  Download as DownloadIcon,
-  Business as BusinessIcon,
-  DisplaySettings as DisplayIcon,
-  Group as GroupIcon
-} from "@mui/icons-material";
+  Settings,
+  Building2,
+  Phone,
+  MapPin,
+  Coins,
+  Receipt,
+  Download,
+  Upload,
+  Trash2,
+  Moon,
+  Sun,
+  Monitor,
+  CheckCircle2,
+  ShieldCheck,
+  AlertTriangle,
+  Users,
+  MessageSquare,
+  Facebook,
+  ExternalLink,
+  Save,
+  Undo,
+  Package
+} from "lucide-react";
+import { toast } from "sonner";
+import Cookies from "js-cookie";
+import { cn } from "@/lib/utils";
 
 export default function SettingsPage() {
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [wipeDialogOpen, setWipeDialogOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isWiping, setIsWiping] = useState(false);
 
   const [pharmacyInfo, setPharmacyInfo] = useState({
     name: "Smart Pharma",
@@ -51,7 +65,7 @@ export default function SettingsPage() {
     showReturnsConfirm: true,
   });
 
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const token = Cookies.get("token");
 
   useEffect(() => {
     loadAllSettings();
@@ -62,7 +76,7 @@ export default function SettingsPage() {
     setIsDarkMode(initialDarkMode);
     if (initialDarkMode) document.documentElement.classList.add('dark');
 
-    // Load initial options from localStorage for responsiveness
+    // Load initial options
     const savedOptions = localStorage.getItem("settings-options");
     if (savedOptions) setOptions(JSON.parse(savedOptions));
   }, []);
@@ -75,28 +89,17 @@ export default function SettingsPage() {
       if (res.data.success && res.data.settings) {
         setPharmacyInfo(prev => ({ ...prev, ...res.data.settings }));
 
-        // Sync options from DB
         const dbOptions = {
           showCheckoutConfirm: res.data.settings.showCheckoutConfirm !== undefined ? (res.data.settings.showCheckoutConfirm === 'true' || res.data.settings.showCheckoutConfirm === true) : options.showCheckoutConfirm,
           showReturnsConfirm: res.data.settings.showReturnsConfirm !== undefined ? (res.data.settings.showReturnsConfirm === 'true' || res.data.settings.showReturnsConfirm === true) : options.showReturnsConfirm,
         };
         setOptions(dbOptions);
 
-        // Sync local storage for redundancy
         localStorage.setItem("pharmacy-info", JSON.stringify(res.data.settings));
         localStorage.setItem("settings-options", JSON.stringify(dbOptions));
-      } else {
-        // Fallback to local storage if API fails
-        const savedInfo = localStorage.getItem("pharmacy-info");
-        if (savedInfo) setPharmacyInfo(prev => ({ ...prev, ...JSON.parse(savedInfo) }));
-        const savedOptions = localStorage.getItem("settings-options");
-        if (savedOptions) setOptions(prev => ({ ...prev, ...JSON.parse(savedOptions) }));
       }
-    } catch {
-      const savedInfo = localStorage.getItem("pharmacy-info");
-      if (savedInfo) setPharmacyInfo(prev => ({ ...prev, ...JSON.parse(savedInfo) }));
-      const savedOptions = localStorage.getItem("settings-options");
-      if (savedOptions) setOptions(prev => ({ ...prev, ...JSON.parse(savedOptions) }));
+    } catch (err) {
+      console.error("Failed to load settings", err);
     }
   };
 
@@ -105,24 +108,25 @@ export default function SettingsPage() {
       await axios.post('/api/settings', { key, value }, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      // Simple notification for critical settings
+      if (typeof value !== 'boolean' && key !== 'theme') {
+        // Maybe debounced? For now we just sync
+      }
     } catch (err) {
       console.error("Failed to save setting to DB", err);
+      toast.error("فشل في حفظ الإعدادات على الخادم ❌");
     }
   };
 
-  const showSnackbar = (message, severity = 'info') => {
-    setSnackbar({ open: true, message, severity });
-  };
-
-  const handleThemeChange = () => {
-    const newDarkMode = !isDarkMode;
-    setIsDarkMode(newDarkMode);
-    localStorage.setItem("theme", newDarkMode ? 'dark' : 'light');
-    if (newDarkMode) {
+  const handleThemeChange = (val) => {
+    setIsDarkMode(val);
+    localStorage.setItem("theme", val ? 'dark' : 'light');
+    if (val) {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
+    saveSettingToDB('theme', val ? 'dark' : 'light');
   };
 
   const handleInfoChange = (field, value) => {
@@ -130,19 +134,17 @@ export default function SettingsPage() {
     setPharmacyInfo(updated);
     localStorage.setItem("pharmacy-info", JSON.stringify(updated));
     saveSettingToDB(field, value);
-    // Trigger a storage event for other components (like sidebar)
     window.dispatchEvent(new Event('storage'));
   };
 
-  const handleOptionChange = (key) => {
-    const newValue = !options[key];
-    const updated = { ...options, [key]: newValue };
+  const handleOptionChange = (key, val) => {
+    const updated = { ...options, [key]: val };
     setOptions(updated);
     localStorage.setItem("settings-options", JSON.stringify(updated));
-    saveSettingToDB(key, newValue);
+    saveSettingToDB(key, val);
   };
 
-  const exportData = async () => {
+  const handleExportData = async () => {
     try {
       const [productsRes, winningsRes] = await Promise.all([
         axios.get('/api/products', { headers: { Authorization: `Bearer ${token}` } }),
@@ -162,13 +164,13 @@ export default function SettingsPage() {
       link.href = url;
       link.download = `pharmacy-backup-${new Date().toISOString().split('T')[0]}.json`;
       link.click();
-      showSnackbar('تم تصدير نسخة احتياطية بنجاح', 'success');
+      toast.success("تم تصدير نسخة احتياطية بنجاح ✅");
     } catch {
-      showSnackbar('فشل تصدير البيانات', 'error');
+      toast.error("فشل في تصدير البيانات ❌");
     }
   };
 
-  const importData = (event) => {
+  const handleImportData = (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
@@ -185,252 +187,345 @@ export default function SettingsPage() {
         });
 
         if (res.data.success) {
-          showSnackbar(res.data.message, 'success');
+          toast.success(res.data.message || "تم استيراد البيانات بنجاح ✅");
           if (data.pharmacy) {
             handleInfoChange('name', data.pharmacy.name || pharmacyInfo.name);
           }
+          window.location.reload();
         }
       } catch (err) {
-        showSnackbar('فشل استيراد الملف: تأكد من صحة التنسيق', 'error');
+        toast.error("فشل استيراد الملف: تأكد من صحة التنسيق ❌");
       }
     };
     reader.readAsText(file);
   };
 
-  const wipeData = async () => {
+  const handleWipeData = async () => {
+    setIsWiping(true);
     try {
       const res = await axios.post('/api/settings/wipe', {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.data.success) {
-        showSnackbar(res.data.message, 'success');
+        toast.success(res.data.message || "تم تصفير قاعدة البيانات بالكامل ✅");
         setWipeDialogOpen(false);
+        setTimeout(() => window.location.reload(), 1500);
       }
     } catch {
-      showSnackbar('فشل تصفير البيانات', 'error');
+      toast.error("فشل في تصفير البيانات ❌");
+    } finally {
+      setIsWiping(false);
     }
   };
 
-  const confirmUserDeletion = async () => {
-    // Removed
-  };
+  const teamMembers = [
+    { name: "Ali Ezzat", role: "Developer", wa: "https://wa.me/201287664311", fb: "https://www.facebook.com/ali.ezzat.5872682/" },
+    { name: "Nour Mohamed", role: "Tester", wa: "https://wa.me/201012345678", fb: "https://www.facebook.com/tapasko.1" },
+    { name: "Yousef Mahmoud", role: "Designer", wa: "https://wa.me/201112345678", fb: "https://www.facebook.com/youssef.mahmoud.996928" },
+  ];
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4, direction: 'rtl' }}>
-      <Typography variant="h4" sx={{ fontWeight: 800, mb: 4, color: 'var(--primary)' }}>
-        ⚙️ الإعدادات العامة
-      </Typography>
+    <div className="p-4 md:p-8 w-full min-h-screen flex flex-col gap-8 no-print" dir="rtl">
+      {/* Header Area */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white/40 dark:bg-zinc-900/40 backdrop-blur-xl border border-white/20 dark:border-zinc-800/50 p-8 rounded-[40px] shadow-2xl">
+        <div className="flex items-center gap-6">
+          <div className="h-16 w-16 rounded-[22px] premium-gradient flex items-center justify-center text-white shadow-2xl shadow-primary/30">
+            <Settings className="h-8 w-8" />
+          </div>
+          <div>
+            <h1 className="text-4xl font-black text-primary tracking-tighter leading-none mb-2">الإعدادات والتحكم</h1>
+            <p className="text-xs font-black text-muted-foreground uppercase tracking-[0.3em] opacity-40 italic">System Configuration & Management</p>
+          </div>
+        </div>
+      </div>
 
-      <Grid container spacing={3}>
-        {/* Pharmacy Profile */}
-        <Grid item xs={12} md={7}>
-          <Paper className="glass-card" sx={{ p: 4, mb: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
-              <BusinessIcon color="primary" />
-              <Typography variant="h6" sx={{ fontWeight: 700 }}>بيانات الصيدلية</Typography>
-            </Box>
-            <Grid container spacing={2}>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="اسم الصيدلية"
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Right Column: Profile & Receipts */}
+        <div className="lg:col-span-7 flex flex-col gap-8">
+          <Card className="glass-morphism border-none p-8 shadow-xl rounded-[32px] space-y-8">
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
+                <Building2 className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black tracking-tight italic">بروفايل الشركة</h2>
+                <p className="text-xs font-bold text-muted-foreground uppercase">Pharmacy profile & Identity</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2 col-span-full">
+                <Label className="font-black text-xs uppercase tracking-widest mr-2 opacity-50">اسم الصيدلية</Label>
+                <Input
                   value={pharmacyInfo.name}
                   onChange={(e) => handleInfoChange('name', e.target.value)}
-                  variant="outlined"
+                  className="h-14 rounded-2xl bg-white/50 dark:bg-zinc-800/50 border-none shadow-inner font-black text-lg"
                 />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="العنوان"
-                  value={pharmacyInfo.address}
-                  onChange={(e) => handleInfoChange('address', e.target.value)}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="رقم الهاتف"
-                  value={pharmacyInfo.phone}
-                  onChange={(e) => handleInfoChange('phone', e.target.value)}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="العملة"
-                  value={pharmacyInfo.currency}
-                  onChange={(e) => handleInfoChange('currency', e.target.value)}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="حد التذكير بنقص المخزون"
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-muted-foreground mr-2">العنوان</label>
+                <div className="relative">
+                  <MapPin className="absolute left-auto right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <Input
+                    value={pharmacyInfo.address}
+                    onChange={(e) => handleInfoChange('address', e.target.value)}
+                    className="h-12 pr-12 rounded-xl bg-white/50 dark:bg-zinc-800/50 border-none shadow-inner font-bold"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-muted-foreground mr-2">رقم الهاتف</label>
+                <div className="relative">
+                  <Phone className="absolute left-auto right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <Input
+                    value={pharmacyInfo.phone}
+                    onChange={(e) => handleInfoChange('phone', e.target.value)}
+                    className="h-12 pr-12 rounded-xl bg-white/50 dark:bg-zinc-800/50 border-none shadow-inner font-bold"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-muted-foreground mr-2">العملة</label>
+                <div className="relative">
+                  <Coins className="absolute left-auto right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <Input
+                    value={pharmacyInfo.currency}
+                    onChange={(e) => handleInfoChange('currency', e.target.value)}
+                    className="h-12 pr-12 rounded-xl bg-white/50 dark:bg-zinc-800/50 border-none shadow-inner font-bold"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-muted-foreground mr-2">حد نقص المخزون</label>
+                <Input
                   type="number"
                   value={pharmacyInfo.lowStockThreshold}
                   onChange={(e) => handleInfoChange('lowStockThreshold', parseInt(e.target.value))}
+                  className="h-12 rounded-xl bg-white/50 dark:bg-zinc-800/50 border-none shadow-inner font-bold text-center"
                 />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="رأس المال الابتدائي"
-                  type="number"
-                  value={pharmacyInfo.baseCapital || 100000}
-                  onChange={(e) => handleInfoChange('baseCapital', parseInt(e.target.value))}
-                />
-              </Grid>
-            </Grid>
-          </Paper>
+              </div>
+            </div>
+          </Card>
 
-          {/* Receipt Settings */}
-          <Paper className="glass-card" sx={{ p: 4, mb: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
-              <DownloadIcon sx={{ transform: 'rotate(180deg)' }} color="primary" />
-              <Typography variant="h6" sx={{ fontWeight: 700 }}>تخصيص الفاتورة</Typography>
-            </Box>
-            <Grid container spacing={2}>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="ترويسة الفاتورة (Header)"
+          <Card className="glass-morphism border-none p-8 shadow-xl rounded-[32px] space-y-8">
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                <Receipt className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black tracking-tight italic">تخصيص الفاتورة</h2>
+                <p className="text-xs font-bold text-muted-foreground uppercase">Receipt customization</p>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <Label className="font-black text-xs uppercase tracking-widest mr-2 opacity-50">رأس الفاتورة (Header)</Label>
+                <Input
                   value={pharmacyInfo.receiptHeader}
                   onChange={(e) => handleInfoChange('receiptHeader', e.target.value)}
+                  className="h-12 rounded-xl bg-white/50 dark:bg-zinc-800/50 border-none shadow-inner font-bold"
                 />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="خاتمة الفاتورة (Footer)"
+              </div>
+              <div className="space-y-2">
+                <Label className="font-black text-xs uppercase tracking-widest mr-2 opacity-50">ذيل الفاتورة (Footer)</Label>
+                <Input
                   value={pharmacyInfo.receiptFooter}
                   onChange={(e) => handleInfoChange('receiptFooter', e.target.value)}
+                  className="h-12 rounded-xl bg-white/50 dark:bg-zinc-800/50 border-none shadow-inner font-bold"
                 />
-              </Grid>
-            </Grid>
-          </Paper>
+              </div>
+            </div>
+          </Card>
 
-          {/* Receipt Settings section continues */}
-        </Grid>
+          <Card className="glass-morphism border-none p-8 shadow-xl rounded-[32px] space-y-8 overflow-hidden relative">
+            <div className="absolute top-0 left-0 w-full h-1 premium-gradient opacity-50" />
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-500">
+                <Users className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black tracking-tight italic">فريق الدعم والبرمجة</h2>
+                <p className="text-xs font-bold text-muted-foreground uppercase">The creative team</p>
+              </div>
+            </div>
 
-        {/* Display and Actions */}
-        <Grid item xs={12} md={5}>
-          <Paper className="glass-card" sx={{ p: 4, mb: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
-              <DisplayIcon color="primary" />
-              <Typography variant="h6" sx={{ fontWeight: 700 }}>التفضيلات</Typography>
-            </Box>
+            <div className="space-y-4">
+              {teamMembers.map((member, idx) => (
+                <div key={idx} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-5 rounded-2xl bg-white/5 dark:bg-zinc-900 border border-white/5 hover:bg-white/10 transition-all group">
+                  <div className="flex items-center gap-4">
+                    <div className="h-12 w-12 rounded-full premium-gradient flex items-center justify-center text-white font-black text-xl shadow-lg border-2 border-white/20">
+                      {member.name[0]}
+                    </div>
+                    <div>
+                      <h4 className="font-black text-lg group-hover:text-primary transition-colors">{member.name}</h4>
+                      <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">{member.role}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-4 sm:mt-0">
+                    <Button
+                      onClick={() => window.open(member.wa, '_blank')}
+                      variant="outline"
+                      className="h-10 rounded-xl gap-2 font-black border-emerald-500/20 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      تواصل
+                    </Button>
+                    <Button
+                      onClick={() => window.open(member.fb, '_blank')}
+                      variant="outline"
+                      className="h-10 rounded-xl gap-2 font-black border-blue-500/20 text-blue-500 hover:bg-blue-500 hover:text-white transition-all"
+                    >
+                      <Facebook className="h-4 w-4" />
+                      فيسبوك
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
 
-            <FormControlLabel
-              control={<Switch checked={isDarkMode} onChange={handleThemeChange} />}
-              label={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  {isDarkMode ? <DarkModeIcon fontSize="small" /> : <LightModeIcon fontSize="small" />}
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>الوضع الليلي (Dark Mode)</Typography>
-                </Box>
-              }
-              sx={{ mb: 2, display: 'flex' }}
-            />
+        {/* Left Column: Preferences & Data */}
+        <div className="lg:col-span-5 flex flex-col gap-8">
+          <Card className="glass-morphism border-none p-8 shadow-xl rounded-[32px] space-y-8 overflow-hidden">
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-500">
+                <ShieldCheck className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black tracking-tight italic">تفضيلات النظام</h2>
+                <p className="text-xs font-bold text-muted-foreground uppercase">System Preferences</p>
+              </div>
+            </div>
 
-            <Divider sx={{ my: 2 }} />
+            <div className="space-y-6">
+              <div className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/5 group">
+                <div className="flex items-center gap-3">
+                  {isDarkMode ? <Moon className="h-5 w-5 text-blue-400" /> : <Sun className="h-5 w-5 text-amber-500" />}
+                  <Label className="font-black cursor-pointer group-hover:text-primary transition-colors">الوضع الليلي (Dark Mode)</Label>
+                </div>
+                <Switch checked={isDarkMode} onCheckedChange={handleThemeChange} />
+              </div>
 
-            <List sx={{ p: 0 }}>
-              <ListItem sx={{ px: 0 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={options.showCheckoutConfirm}
-                      onChange={() => handleOptionChange("showCheckoutConfirm")}
-                    />
-                  }
-                  label="تأكيد البيع"
+              <div className="h-px w-full bg-white/5" />
+
+              <div className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/5 group">
+                <div className="flex items-center gap-3">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                  <Label className="font-black cursor-pointer group-hover:text-primary transition-colors">طلب تأكيد عند البيع</Label>
+                </div>
+                <Switch
+                  checked={options.showCheckoutConfirm}
+                  onCheckedChange={(val) => handleOptionChange('showCheckoutConfirm', val)}
                 />
-              </ListItem>
-              <ListItem sx={{ px: 0 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={options.showReturnsConfirm}
-                      onChange={() => handleOptionChange("showReturnsConfirm")}
-                    />
-                  }
-                  label="تأكيد المرتجع"
+              </div>
+
+              <div className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/5 group">
+                <div className="flex items-center gap-3">
+                  <Undo className="h-5 w-5 text-red-500" />
+                  <Label className="font-black cursor-pointer group-hover:text-primary transition-colors">طلب تأكيد عند المرتجع</Label>
+                </div>
+                <Switch
+                  checked={options.showReturnsConfirm}
+                  onCheckedChange={(val) => handleOptionChange('showReturnsConfirm', val)}
                 />
-              </ListItem>
-            </List>
-          </Paper>
+              </div>
+            </div>
+          </Card>
 
-          <Paper className="glass-card" sx={{ p: 4, bgcolor: 'rgba(0,137,123,0.05)' }}>
-            <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>📦 إدارة البيانات</Typography>
+          <Card className="glass-morphism border-none p-8 shadow-xl rounded-[32px] space-y-8 bg-primary/5 relative overflow-hidden">
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
+                <Package className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black tracking-tight italic text-primary">إدارة البيانات</h2>
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Backup & Recovery</p>
+              </div>
+            </div>
 
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div className="flex flex-col gap-4">
               <Button
-                variant="outlined"
-                startIcon={<DownloadIcon />}
-                onClick={exportData}
-                sx={{ borderRadius: '12px', py: 1.5, borderColor: 'var(--primary)', color: 'var(--primary)' }}
+                onClick={handleExportData}
+                variant="outline"
+                className="h-16 rounded-[20px] bg-white dark:bg-black border-2 border-primary/20 hover:border-primary text-primary font-black text-lg gap-3 transition-all group"
               >
+                <Download className="h-6 w-6 group-hover:translate-y-1 transition-transform" />
                 تصدير نسخة احتياطية (JSON)
               </Button>
 
-              <Button
-                component="label"
-                variant="outlined"
-                startIcon={<DownloadIcon sx={{ transform: 'rotate(180deg)' }} />}
-                sx={{ borderRadius: '12px', py: 1.5, borderColor: 'var(--secondary)', color: 'var(--secondary)' }}
-              >
-                استيراد واستعادة البيانات
-                <input type="file" hidden accept=".json" onChange={importData} />
-              </Button>
+              <div className="relative">
+                <input type="file" id="import-btn" hidden accept=".json" onChange={handleImportData} />
+                <Button
+                  asChild
+                  variant="outline"
+                  className="h-16 w-full rounded-[20px] bg-white dark:bg-black border-2 border-emerald-500/20 hover:border-emerald-500 text-emerald-500 font-black text-lg gap-3 transition-all cursor-pointer group"
+                >
+                  <label htmlFor="import-btn">
+                    <Upload className="h-6 w-6 group-hover:-translate-y-1 transition-transform" />
+                    استيراد واستعادة البيانات
+                  </label>
+                </Button>
+              </div>
 
-              <Divider sx={{ my: 1 }} />
+              <div className="h-px w-full bg-primary/10 my-2" />
 
-              <Button
-                variant="contained"
-                color="error"
-                onClick={() => setWipeDialogOpen(true)}
-                sx={{ borderRadius: '12px', py: 1.5, fontWeight: 700 }}
-              >
-                تصفير قاعدة البيانات
-              </Button>
-            </Box>
+              <Dialog open={wipeDialogOpen} onOpenChange={setWipeDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    className="h-16 rounded-[20px] font-black text-lg gap-3 shadow-xl hover:scale-105 active:scale-95 transition-all"
+                  >
+                    <Trash2 className="h-6 w-6" />
+                    تصفير قاعدة البيانات
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-md border-none p-8 rounded-[32px] glass-morphism shadow-2xl space-y-6" dir="rtl">
+                  <DialogHeader>
+                    <div className="h-16 w-16 rounded-2xl bg-red-500/10 flex items-center justify-center text-red-500 mx-auto mb-4">
+                      <AlertTriangle className="h-10 w-10 animate-pulse" />
+                    </div>
+                    <DialogTitle className="text-center text-3xl font-black text-red-500 italic">تأكيد الحذف النهائي</DialogTitle>
+                  </DialogHeader>
 
-            <Typography variant="caption" sx={{ mt: 2, display: 'block', textAlign: 'center', color: 'text.secondary' }}>
-              ⚠️ تحذير: الاستيراد أو التصفير سيؤدي لفقدان البيانات الحالية.
-            </Typography>
-          </Paper>
-        </Grid>
-      </Grid>
+                  <div className="space-y-4 text-center">
+                    <p className="font-bold text-lg leading-relaxed">
+                      هل أنت متأكد من رغبتك في حذف <strong>جميع المنتجات وجميع سجلات المبيعات والأرباح</strong>؟
+                    </p>
+                    <Card className="p-4 bg-red-500/5 border-red-500/20 border-dashed rounded-xl">
+                      <p className="font-black text-red-500 uppercase tracking-widest text-xs">⚠️ تحذير خطير</p>
+                      <p className="font-bold text-sm text-red-500/80 mt-1">لا يمكن التراجع عن هذه العملية! يرجى تحميل نسخة احتياطية أولاً.</p>
+                    </Card>
+                  </div>
 
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={4000}
-        onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
-      >
-        <Alert severity={snackbar.severity} sx={{ width: '100%' }}>
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
+                  <DialogFooter className="grid grid-cols-2 gap-4 mt-8">
+                    <Button
+                      variant="outline"
+                      onClick={() => setWipeDialogOpen(false)}
+                      className="h-14 rounded-2xl font-black border-zinc-200"
+                    >
+                      إلغاء العملية
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={handleWipeData}
+                      disabled={isWiping}
+                      className="h-14 rounded-2xl font-black shadow-lg shadow-red-500/20"
+                    >
+                      {isWiping ? <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "نعم، احذف الأن"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
 
-      {/* Confirmation Dialogs */}
-
-      <Dialog open={wipeDialogOpen} onClose={() => setWipeDialogOpen(false)}>
-        <DialogTitle sx={{ color: 'error.main' }}>⚠️ تأكيد تصفير البيانات</DialogTitle>
-        <DialogContent dividers>
-          <Typography>
-            هل أنت متأكد من رغبتك في حذف <strong>جميع المنتجات وجميع سجلات المبيعات والأرباح</strong>؟
-          </Typography>
-          <Typography sx={{ mt: 2, fontWeight: 800, color: 'error.main' }}>
-            لا يمكن تراجع عن هذه العملية! يرجى تحميل نسخة احتياطية أولاً.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setWipeDialogOpen(false)}>إلغاء</Button>
-          <Button variant="contained" color="error" onClick={wipeData}>
-            نعم، احذف كل شيء
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Container>
+            <p className="text-[10px] font-black uppercase text-center text-muted-foreground/40 tracking-[0.2em] italic mt-4">
+              Warning: Data operations are irreversible
+            </p>
+          </Card>
+        </div>
+      </div>
+    </div>
   );
 }
