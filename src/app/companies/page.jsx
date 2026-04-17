@@ -340,8 +340,15 @@ export default function CompaniesPage() {
                               </div>
                             ) : (
                               <div className="h-10 w-10 rounded-full bg-zinc-500/10 flex items-center justify-center text-zinc-400" title="طلب مستقر">
-                                <TrendingFlat className="h-6 w-6" />
-                              </div>
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  className="h-6 w-6"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                >
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 7l-10 10m0-10h10v10" />
+                                </svg>                              </div>
                             )}
                           </div>
                         </TableCell>
