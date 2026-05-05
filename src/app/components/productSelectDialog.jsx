@@ -162,57 +162,79 @@ const ProductSelectDialog = ({
     }, {});
   }, [resultsArray]);
 
-  const validateAndAdd = () => {
-    if (!selectedProduct) {
-      toast.error("الرجاء اختيار منتج أولاً.");
-      return;
-    }
-    if (!tempQuantity || tempQuantity < 1) {
-      toast.error("الكمية يجب أن تكون 1 أو أكثر.");
-      return;
+ const validateAndAdd = () => {
+  if (!selectedProduct) {
+    toast.error("الرجاء اختيار منتج أولاً.");
+    return;
+  }
+
+  const qty = Number(tempQuantity);
+
+  if (!qty || qty < 1) {
+    toast.error("الكمية يجب أن تكون 1 أو أكثر.");
+    return;
+  }
+
+  // ✅ استخدم نفس نظام التحويل المستخدم في checkout
+  const multiplier = (() => {
+    if (tempUnit === "علبة") return 1;
+
+    if (
+      ["شريط", "strip"].includes(tempUnit?.toLowerCase?.())
+    ) {
+      return Number(selectedProduct.stripsPerBox || 1);
     }
 
-    const desiredBaseQty = getBaseQuantity(
-      selectedProduct,
-      tempQuantity,
-      tempUnit
+    if (
+      ["قرص", "كبسولة", "قطعة", "لبوسة"].includes(tempUnit)
+    ) {
+      const strips = Number(selectedProduct.stripsPerBox || 1);
+      const pills = Number(tempPillsPerStrip || 1);
+
+      return strips * pills;
+    }
+
+    return 1;
+  })();
+
+  // ✅ حول المطلوب لوحدة التخزين الأساسية (علبة)
+  const requiredBoxes = qty / multiplier;
+
+  // ✅ الكمية الحالية بالمخزن (علب)
+  const availableBoxes = Number(selectedProduct.quantity || 0);
+
+  if (availableBoxes <= 0) {
+    toast.error("المنتج غير متوفر في المخزون.");
+    return;
+  }
+
+  // ✅ مقارنة صحيحة بعد التحويل
+  if (requiredBoxes > availableBoxes) {
+    toast.error(
+      `الكمية المطلوبة (${qty} ${tempUnit}) أكبر من المتوفرة`
     );
-    const availableBaseQty = selectedProduct.isBaseUnit
-      ? Number(selectedProduct.quantity || 0)
-      : selectedProduct.unit === tempUnit
-        ? Number(selectedProduct.quantity || 0)
-        : Number(selectedProduct.quantity || 0) *
-        Number(selectedProduct.unitConversion || 1);
+    return;
+  }
 
-    if (desiredBaseQty > availableBaseQty) {
-      toast.error(
-        `الكمية المطلوبة (${tempQuantity} ${tempUnit}) أكبر من المتوفرة (${selectedProduct.quantity} ${selectedProduct.unit})`
-      );
-      return;
-    }
+  try {
+    if (typeof handleAddProduct === "function") {
+      handleAddProduct(selectedProduct, {
+        unit: tempUnit,
+        quantity: qty,
+        expiry: tempExpiry === "no-expiry" ? null : tempExpiry,
+      });
 
-    if (availableBaseQty <= 0) {
-      toast.error("المنتج غير متوفر في المخزون.");
-      return;
-    }
+      setTempQuantity(1);
 
-    try {
-      if (typeof handleAddProduct === "function") {
-        handleAddProduct(selectedProduct, {
-          unit: tempUnit,
-          quantity: Number(tempQuantity),
-          expiry: tempExpiry === "no-expiry" ? null : tempExpiry,
-        });
-        setTempQuantity(1);
-        toast.success("تمت إضافة المنتج بنجاح 🛍️");
-      } else {
-        toast.error("خطأ تقني: لم يتم العثور على معالج الإضافة.");
-      }
-    } catch (err) {
-      console.error("خطأ عند إضافة المنتج:", err);
-      toast.error("حدث خطأ أثناء إضافة المنتج، حاول مجددًا.");
+      toast.success("تمت إضافة المنتج بنجاح 🛍️");
+    } else {
+      toast.error("خطأ تقني: لم يتم العثور على معالج الإضافة.");
     }
-  };
+  } catch (err) {
+    console.error("خطأ عند إضافة المنتج:", err);
+    toast.error("حدث خطأ أثناء إضافة المنتج، حاول مجددًا.");
+  }
+};
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>

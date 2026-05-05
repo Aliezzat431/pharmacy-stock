@@ -1,3 +1,4 @@
+===== C:\Users\dd\Desktop\projects\pharmacy-stock\src\app\api\checkout\route.js ===== 
 "use client";
 
 import React, {
@@ -155,7 +156,10 @@ export default function ReturnsPage() {
 
         // ✅ Use Cookies.get to match verifyToken() expectation
         const token = Cookies.get("token");
-      
+        if (!token) {
+          showToast("يجب تسجيل الدخول أولاً", "error");
+          return;
+        }
 
         const res = await fetch(
           `/api/transactions?type=sale&days=${days}&showReturned=false`,
@@ -300,7 +304,7 @@ export default function ReturnsPage() {
       dispatch({ type: "SET_SUBMITTING", payload: true });
 
       const token = Cookies.get("token");
-    //  if (!token) throw new Error("انتهت الجلسة، يرجى تسجيل الدخول");
+      if (!token) throw new Error("انتهت الجلسة، يرجى تسجيل الدخول");
 
       // ✅ Format payload to EXACTLY match backend expectations
       const itemsPayload = returnItems.map((item) => ({
@@ -310,7 +314,6 @@ export default function ReturnsPage() {
         quantity: parseInt(item.quantity), // ✅ Backend expects integer
         price: parseFloat(item.price), // ✅ Backend expects float
       }));
-console.log(`token is  `,token);
 
       const res = await fetch("/api/returns", {
         method: "POST",

@@ -220,8 +220,6 @@ export default function SettingsPage() {
 
   const teamMembers = [
     { name: "Ali Ezzat", role: "Developer", wa: "https://wa.me/201287664311", fb: "https://www.facebook.com/ali.ezzat.5872682/" },
-    { name: "Nour Mohamed", role: "Tester", wa: "https://wa.me/201012345678", fb: "https://www.facebook.com/tapasko.1" },
-    { name: "Yousef Mahmoud", role: "Designer", wa: "https://wa.me/201112345678", fb: "https://www.facebook.com/youssef.mahmoud.996928" },
   ];
 
   return (
@@ -455,19 +453,7 @@ export default function SettingsPage() {
                 تصدير نسخة احتياطية (JSON)
               </Button>
 
-              <div className="relative">
-                <input type="file" id="import-btn" hidden accept=".json" onChange={handleImportData} />
-                <Button
-                  asChild
-                  variant="outline"
-                  className="h-16 w-full rounded-[20px] bg-white dark:bg-black border-2 border-emerald-500/20 hover:border-emerald-500 text-emerald-500 font-black text-lg gap-3 transition-all cursor-pointer group"
-                >
-                  <label htmlFor="import-btn">
-                    <Upload className="h-6 w-6 group-hover:-translate-y-1 transition-transform" />
-                    استيراد واستعادة البيانات
-                  </label>
-                </Button>
-              </div>
+                
 
               <div className="h-px w-full bg-primary/10 my-2" />
 

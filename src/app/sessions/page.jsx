@@ -99,14 +99,28 @@ export default function SessionsPage() {
         }
     };
 
-    const formatDuration = (start, end) => {
-        if (!end) return 'نشطة الآن';
-        return formatDistance(new Date(start), new Date(end), { locale: ar });
-    };
+  const formatDuration = (start, end) => {
+    if (!start || !end) return 'نشطة الآن';
 
-    const formatDate = (dateString) => {
-        return format(new Date(dateString), 'dd/MM/yyyy hh:mm a', { locale: ar });
-    };
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+
+    if (!isValid(startDate) || !isValid(endDate)) {
+        return "-";
+    }
+
+    return formatDistance(startDate, endDate, { locale: ar });
+};
+
+const formatDate = (dateString) => {
+    const date = new Date(dateString);
+
+    if (!dateString || !isValid(date)) {
+        return "-";
+    }
+
+    return format(date, 'dd/MM/yyyy hh:mm a', { locale: ar });
+};
 
     return (
         <Container maxWidth="lg" sx={{ mt: 4, mb: 8 }}>

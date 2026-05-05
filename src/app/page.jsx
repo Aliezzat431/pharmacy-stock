@@ -113,40 +113,142 @@ const CheckoutPage = () => {
     setVariants([]);
   };
 
-  const handleAddProduct = () => {
-    if (!selectedProduct) return;
+ const handleAddProduct = () => {
+  if (!selectedProduct) return;
 
-    const multiplier = getMultiplier(selectedProduct, tempUnit, tempPillsPerStrip);
-    const price = selectedProduct.price / multiplier;
+  // =========================
+  // UNIT MULTIPLIER
+  // =========================
+  const multiplier = getMultiplier(
+    selectedProduct,
+    tempUnit,
+    tempPillsPerStrip
+  );
 
-    const qty = Number(tempQuantity);
-    const soldInBoxes = qty / multiplier;
+  // =========================
+  // PRICE
+  // =========================
+  const price = Number(selectedProduct.price || 0) / multiplier;
 
-    const originalQty = Number(selectedProduct.quantity || 0);
-    const remaining = Math.max(0, originalQty - soldInBoxes);
+  // =========================
+  // QUANTITY REQUESTED
+  // =========================
+  const qty = Number(tempQuantity || 0);
 
-    const newItem = {
-      name: selectedProduct.name,
-      _id: selectedProduct._id,
-      batchId: selectedProduct.batchId,   // batch subdoc id for stock tracking
-      barcode: selectedProduct.barcode,   // batch barcode for checkout API
-      price,
-      quantity: qty,
-      unit: tempUnit,
-      total: price * qty,
-      expiry: tempExpiry ? new Date(tempExpiry).toISOString() : null,
-      unitOptions: selectedProduct.unitOptions || [selectedProduct.unit],
-      fullProduct: selectedProduct,
-      remaining,
-      pillsPerStrip: tempPillsPerStrip,
-    };
+  if (qty <= 0) {
+    toast.error("أدخل كمية صحيحة ❌");
+    return;
+  }
 
-    addItem(newItem);
-    decreaseStock(selectedProduct, soldInBoxes);
+  // =========================
+  // CONVERT TO BOXES
+  // =========================
+  // Example:
+  // 1 strip from 10 strips/box
+  // = 0.1 box
+  const soldInBoxes = qty / multiplier;
 
-    resetSelection();
-    setShowSearch(false);
+  // =========================
+  // AVAILABLE STOCK
+  // =========================
+  // IMPORTANT:
+  // quantity in DB is stored in BOXES
+  const availableBoxes = Number(selectedProduct.quantity || 0);
+
+  // =========================
+  // VALIDATION
+  // =========================
+  if (soldInBoxes > availableBoxes) {
+
+    // convert available stock to selected unit
+    const availableInSelectedUnit =
+      availableBoxes * multiplier;
+
+    toast.error(
+      `الكمية المطلوبة (${qty} ${tempUnit}) أكبر من المتوفرة (${Number(
+        availableInSelectedUnit.toFixed(2)
+      )} ${tempUnit}) ❌`
+    );
+
+    return;
+  }
+
+  // =========================
+  // REMAINING STOCK
+  // =========================
+  const remaining = Number(
+    Math.max(0, availableBoxes - soldInBoxes).toFixed(4)
+  );
+
+  // =========================
+  // CREATE CART ITEM
+  // =========================
+  const newItem = {
+    name: selectedProduct.name,
+
+    _id:
+      selectedProduct._id ||
+      selectedProduct.id,
+
+    productId:
+      selectedProduct.productId ||
+      selectedProduct._id ||
+      selectedProduct.id,
+
+    batchId:
+      selectedProduct.batchId || null,
+
+    barcode:
+      selectedProduct.barcode || null,
+
+    price,
+
+    quantity: qty,
+
+    unit: tempUnit,
+
+    total: Number((price * qty).toFixed(2)),
+
+    expiry: tempExpiry
+      ? new Date(tempExpiry).toISOString()
+      : null,
+
+    unitOptions:
+      selectedProduct.unitOptions || [
+        selectedProduct.unit,
+      ],
+
+    fullProduct: selectedProduct,
+
+    remaining,
+
+    pillsPerStrip: tempPillsPerStrip,
   };
+
+  // =========================
+  // ADD TO CART
+  // =========================
+  addItem(newItem);
+
+  // =========================
+  // UPDATE LOCAL STOCK
+  // =========================
+  decreaseStock(
+    selectedProduct,
+    soldInBoxes
+  );
+
+  // =========================
+  // RESET
+  // =========================
+  resetSelection();
+
+  setShowSearch(false);
+
+  toast.success(
+    `تم إضافة ${qty} ${tempUnit} من ${selectedProduct.name} ✅`
+  );
+};
 
   const handleScan = useCallback((scanned) => {
     // Match by batch barcode (flattened field in search results)
